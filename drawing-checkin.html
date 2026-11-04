@@ -169,7 +169,7 @@ let theme='dark';try{const savedTheme=localStorage.getItem('drawing-theme');if(s
 function applyTheme(){document.documentElement.dataset.theme=theme;document.getElementById('theme').textContent=theme==='dark'?'浅色':'深色';document.getElementById('theme').setAttribute('aria-label',theme==='dark'?'切换到浅色主题':'切换到深色主题')}
 applyTheme();document.getElementById('theme').onclick=()=>{theme=theme==='dark'?'light':'dark';applyTheme();try{localStorage.setItem('drawing-theme',theme)}catch(e){}};
 
-const initial=['目录','设计说明一','设计说明二','总览图','原始结构图','拆墙图','设计方案图','砌墙图','地面铺贴图','空间尺寸图','家具尺寸图','综合天花图','天花造型尺寸图','天花灯具尺寸图','灯具连线图','开关插座电位图','水路电位图','立面索引图','立面图 01','立面图 02','立面图 03','立面图 04','门头立面图'];
+const initial=[];
 const categories=['封面说明','平面图纸','立面图纸','大样节点'];
 function inferCategory(it){if(/大样|节点/.test(it.title))return '大样节点';if(/立面/.test(it.title)&&!/索引/.test(it.title))return '立面图纸';if(/封面|目录|说明|总览/.test(it.title))return '封面说明';return '平面图纸'}
 function normalizeItems(list){return list.map(it=>({...it,category:categories.includes(it.category)?it.category:inferCategory(it)}))}
