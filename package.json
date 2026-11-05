@@ -1,0 +1,15 @@
+{
+  "name": "project-flowline-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:sync": "node scripts/build-sync.mjs",
+    "test": "node tests/workspace.cjs && node --test tests/cloud-model.test.mjs tests/cloud-client.test.mjs"
+  },
+  "dependencies": {
+    "firebase": "11.10.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}
