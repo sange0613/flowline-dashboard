@@ -1,0 +1,37 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
+const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
+const script=html.slice(html.indexOf("document.addEventListener('DOMContentLoaded'"),html.lastIndexOf('</script>'));
+function boot(seed){const nodes=new Map(),listeners={};let stored=seed?JSON.stringify(seed):null,id=0;const node=selector=>{if(!nodes.has(selector))nodes.set(selector,{value:'',dataset:{},style:{setProperty(){}},classList:{add(){},remove(){},toggle(){}},textContent:'',innerHTML:'',children:[],contentWindow:{postMessage(){}},querySelector:s=>node(selector+' '+s),querySelectorAll:()=>[],addEventListener(){},replaceChildren(){},append(){},showModal(){},close(){},focus(){}});return nodes.get(selector)};
+ const document={querySelector:node,querySelectorAll:()=>[],createElement:()=>node('created-'+ ++id),createTextNode:s=>s,addEventListener:(type,fn)=>{if(type==='DOMContentLoaded')fn()}};
+ document.body=node('body');const context={document,window:{addEventListener:(type,fn)=>{(listeners[type]??=[]).push(fn)}},localStorage:{getItem:()=>stored,setItem:(k,v)=>stored=v},crypto:{randomUUID:()=>`test-${++id}`},setTimeout:()=>1,clearTimeout(){},console,Date,URL,Blob,FormData:class{constructor(form){return form}}};context.globalThis=context;
+ vm.createContext(context);const exposed=script.replace(/\}\);\s*$/,`globalThis.app={get state(){return state},set state(v){state=v},project,stage,save,render,draw,detail,syncTemplateLinks,normalizeProject,previewImport,validateDrawingBackup,drawingBackupProject,clearTemplateProgress,progressInfo,liveStages,projectPreview,removeFlow,undoChange,get history(){return undoHistory},get selected(){return selected},set selected(v){selected=v},get unfinished(){return onlyUnfinished}};});`);vm.runInContext(exposed,context);return {app:context.app,node,listeners,stored:()=>JSON.parse(stored)};}
+const task=(id,text,done=false,details='')=>({id,text,done,details});
+const stage=(id,title,tasks=[],extra={})=>({id,title,tasks,status:'pending',notes:[],remark:'',...extra});
+const template={id:'t',name:'模板',isTemplate:true,viewMode:'cards',stages:[stage('s1','第一阶段',[task('a','事项一'),task('b','事项二')]),stage('s2','第二阶段')]};
+const project={id:'p',name:'项目',activeFlow:'f',flows:[{id:'f',name:'模板',templateId:'t',templateBase:{},stages:[stage('ps1','第一阶段',[{...task('pa','事项一',true),sourceId:'a'},{...task('pb','事项二',false,'项目备注'),sourceId:'b'}],{sourceId:'s1',remark:'保留备注',dueDate:'2026-12-10'}),stage('ps2','第二阶段',[],{sourceId:'s2'})]}],stages:[]};project.stages=project.flows[0].stages;
+{
+ const {app,node}=boot({projects:[template,project],current:'t'});const t=app.state.projects[0],p=app.state.projects[1];t.stages[0].tasks=[];t.stages.pop();app.save();assert.equal(p.flows[0].stages.length,1);assert.equal(p.flows[0].stages[0].tasks.length,2);assert(p.flows[0].stages[0].tasks.every(t=>t.inactive));assert.equal(p.flows[0].stages[0].remark,'保留备注');assert.equal(p.flows[0].stages[0].dueDate,'2026-12-10');
+ t.stages=[];app.save();assert(p.flows[0].stages[0].inactive);assert.equal(app.progressInfo(p.flows[0].stages).percent,0);assert(node('#projects').innerHTML.includes('project-mini-track'));
+ app.undoChange();assert.equal(app.state.projects[0].stages.length,1);assert(!app.state.projects[1].flows[0].stages[0].inactive);app.undoChange();assert.equal(app.state.projects[0].stages.length,2);assert(app.state.projects[1].flows[0].stages[0].tasks[0].done);
+}
+{
+ const {app,node}=boot({projects:[project],current:'p'});app.project().stages[0].tasks[0].done=false;app.save();assert.equal(app.progressInfo(app.project().stages).percent,0);app.undoChange();assert(app.project().stages[0].tasks[0].done);node('#onlyUnfinished').onchange({target:{checked:true}});assert(app.unfinished);assert(!node('#detail').innerHTML.includes('data-task="pa"'));assert(node('#detail').innerHTML.includes('data-task="pb"'));
+ const copy=app.normalizeProject(app.project());assert.equal(copy.flows[0].stages[0].dueDate,'2026-12-10');
+}
+{
+ const {app,node}=boot();assert.throws(()=>app.validateDrawingBackup({version:1,items:[{id:'bad'}]}));const raw={version:1,items:[{id:'d1',title:'一张图',done:true,keys:'K',notes:'备注',dueDate:'2026-12-10',category:'图纸'}],pageNotes:Array.from({length:16},(_,i)=>({title:'列'+i,rows:[['保留','文字']]}))};const p=app.drawingBackupProject(raw);assert.equal(p.stages[0].status,'done');assert.equal(p.drawingData.pageNotes.length,12);assert.equal(app.normalizeProject(p).stages[0].dueDate,'2026-12-10');app.previewImport(raw,'backup.json');assert(node('#modalBody').innerHTML.includes('导入施工图备份'));app.clearTemplateProgress(p);assert.equal(p.stages[0].status,'pending');assert.equal(p.drawingData.items[0].done,false);
+}
+{
+ const {app,node}=boot({projects:[project],current:'p'});app.removeFlow('f');node('#confirmAction').onclick();assert.equal(app.project().flows.length,0);app.undoChange();assert.equal(app.project().flows.length,1);assert(app.project().stages[0].tasks[0].done);
+}
+console.log('PASS: startup, safe template deletion, record retention, undo, filter, import validation, dates, progress and checklist removal');
+{
+ const p={id:'draw-project',name:'绘图项目',viewMode:'drawing',stages:[stage('drawing','图纸')]};const {app,node,listeners}=boot({projects:[p],current:p.id});const frame=node('#drawingFrame');const send=items=>listeners.message[0]({source:frame.contentWindow,data:{type:'flowline-drawing-state',scope:frame.dataset.scope,items,pageNotes:Array.from({length:12},()=>({title:'',rows:[['','']]}))}});
+ send([{id:'drawing',title:'图纸',category:'',done:false,keys:'',notes:'',dueDate:'',inactive:false}]);assert.equal(app.history.length,0,'initializing empty drawing notes should not create undo steps');send([{id:'drawing',title:'图纸',category:'',done:true,keys:'',notes:'',dueDate:'',inactive:false}]);assert.equal(app.history.length,1);app.undoChange();assert.equal(app.project().stages[0].status,'pending');
+}
+console.log('PASS: iframe initialization creates no undo entry, drawing completion can be undone');
+
+{
+ const {app,node,listeners}=boot({projects:[project],current:'p'});const raw={version:1,items:[{id:'d1',title:'旧版图纸',done:true,keys:'L',notes:'备注'}],pageNotes:Array.from({length:16},(_,i)=>({title:'列'+i,rows:[['内容'+i,'']]}))};app.previewImport(raw,'legacy.json');const values={name:'导入清单',kind:'list',target:'p'};node('#modalBody').onsubmit({preventDefault(){},target:{get:key=>values[key]}});assert.equal(app.project().flows.length,2);assert.equal(app.project().flows[1].drawingData.pageNotes.length,12);assert(JSON.stringify(app.project().flows[1].drawingData.pageNotes).includes('内容15'));const before=app.history.length;const frame=node('#drawingFrame'),flow=app.project().flows[1];listeners.message[0]({source:frame.contentWindow,data:{type:'flowline-drawing-state',scope:frame.dataset.scope,items:flow.stages.map(s=>({id:s.id,title:s.title,category:s.category,done:s.status==='done',keys:'L',notes:s.remark,dueDate:'',inactive:false})),pageNotes:flow.drawingData.pageNotes}});assert.equal(app.history.length,before,'normalizing a legacy backup must not create extra undo entries');app.undoChange();assert.equal(app.project().flows.length,1);
+}
+console.log('PASS: legacy 16-column import retains all text, adds a project list and undoes in one step');
