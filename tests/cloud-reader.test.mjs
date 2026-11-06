@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import vm from 'node:vm';
+import {gzipSync,gunzipSync} from 'node:zlib';
+import {setTimeout as delay} from 'node:timers/promises';
+import {encryptionKey,encrypt,reconcile,emptyModel,workspaceForSync} from '../cloud/model.mjs';
+const facade=`export const initializeApp=(c,n)=>({name:n}),getApps=()=>[],getApp=n=>({name:n}),getAuth=()=>({currentUser:{uid:'test'}}),signInAnonymously=async()=>{},getFirestore=()=>({}),doc=(db,c,id)=>({id}),onSnapshot=(r,o,fn)=>backend.watch(r,fn);`;
+const {outputFiles}=await build({entryPoints:['cloud/reader.mjs'],bundle:true,format:'cjs',platform:'node',write:false,plugins:[{name:'firebase-read-only',setup(b){b.onResolve({filter:/^firebase\//},()=>({path:'stub',namespace:'test'}));b.onLoad({filter:/.*/,namespace:'test'},()=>({contents:facade,loader:'js'}))}}]});
+test('read-only reader decrypts live updates, excludes templates and retired items, and disposes',async()=>{
+ const code='READERTEST23456789',key=await encryptionKey(code),cache=new Map(),events={};let watch,stopped=false,result,status;
+ const backend={watch(ref,fn){watch=fn;return()=>{stopped=true}}};
+ const module={exports:{}};const context={module,exports:module.exports,backend,fflate:{gzipSync,gunzipSync},crypto:globalThis.crypto,TextEncoder,TextDecoder,Blob,Response,CompressionStream,DecompressionStream,btoa,atob,setTimeout,clearTimeout,console,window:{addEventListener:(n,f)=>events[n]=f,removeEventListener:n=>delete events[n]},localStorage:{getItem:k=>cache.get(k)||null,setItem:(k,v)=>cache.set(k,v)}};
+ vm.createContext(context);vm.runInContext(outputFiles[0].text,context);const dispose=module.exports.subscribeWorkspace(code,{data:v=>result=v,status:v=>status=v});
+ for(let i=0;i<100&&!watch;i++)await delay(5);assert(watch);
+ const workspace={projects:[{id:'template',name:'模板',isTemplate:true,stages:[]},{id:'p',name:'项目',flows:[{id:'f',name:'设计',stages:[{id:'s',title:'阶段',status:'pending',notes:[],planStart:'2026-11-06',dueDate:'2026-11-10',tasks:[{id:'t',text:'任务',done:false},{id:'old',text:'已停用',inactive:true}],remark:'不应出现在摘要中'},{id:'retired',title:'停用阶段',inactive:true,notes:[],tasks:[]}]}]}]};
+ let model=reconcile(emptyModel(),{projects:[]},workspaceForSync(workspace),{at:1,by:'a'}).model;
+ const deliver=async()=>{const payload=await encrypt(model,key);watch({exists:()=>true,data:()=>({flowline:payload}),metadata:{fromCache:false}});for(let i=0;i<100&&!result;i++)await delay(5);await delay(20)};
+ await deliver();assert.equal(result.projects.length,1);const stage=result.projects[0].flows[0].stages[0];assert.equal(stage.planStart,'2026-11-06');assert.equal(stage.planEnd,'2026-11-10');assert.equal(stage.tasks.length,1);assert.equal(stage.tasks[0].done,false);assert.equal(stage.remark,undefined);assert.equal(status,'流程进度已同步');assert.equal(cache.size,1);
+ const before=workspaceForSync(workspace);workspace.projects[1].flows[0].stages[0].tasks[0].done=true;model=reconcile(model,before,workspaceForSync(workspace),{at:2,by:'a'}).model;await deliver();assert.equal(result.projects[0].flows[0].stages[0].tasks[0].done,true);
+ dispose();assert(stopped);assert.equal(Object.keys(events).length,0);
+});
