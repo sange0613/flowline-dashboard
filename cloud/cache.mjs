@@ -1,0 +1,4 @@
+// Compress metadata-heavy local caches without deleting or changing workspace data.
+const prefix='flowline-cache-gzip-v1:';
+export function encodeCache(value,codec=globalThis.fflate){const json=JSON.stringify(value);if(!codec?.gzipSync)return json;const bytes=codec.gzipSync(new TextEncoder().encode(json),{level:1});let text='';for(let i=0;i<bytes.length;i+=8192)text+=String.fromCharCode(...bytes.subarray(i,i+8192));const packed=prefix+btoa(text);return packed.length<json.length?packed:json}
+export function decodeCache(raw,codec=globalThis.fflate){if(!raw)return null;if(!raw.startsWith(prefix))return JSON.parse(raw);if(!codec?.gunzipSync)throw Error('同步缓存组件不可用');const bytes=Uint8Array.from(atob(raw.slice(prefix.length)),c=>c.charCodeAt(0));return JSON.parse(new TextDecoder().decode(codec.gunzipSync(bytes)))}

@@ -1,3 +1,4 @@
+import {encodeCache,decodeCache} from './cache.mjs';
 import {initializeApp,getApps,getApp} from 'firebase/app';
 import {getAuth,signInAnonymously} from 'firebase/auth';
 import {getFirestore,doc,getDocFromServer,onSnapshot,runTransaction,serverTimestamp} from 'firebase/firestore';
@@ -13,7 +14,7 @@ export function createSyncClient(api){
  let device=localStorage.getItem(DEVICE_KEY)||crypto.randomUUID();localStorage.setItem(DEVICE_KEY,device);
  const status=message=>{if(message==='已同步'&&!navigator.onLine)message='离线 · 已保存在本机';if(message==='已同步'){lastSyncedAt=Date.now();if(session)try{localStorage.setItem('flowline.cloud.lastConfirmed.'+session.id,String(lastSyncedAt))}catch{}}display=message;api.status(message,{lastSyncedAt})};
  const stamp=s=>({at:Math.max(Date.now(),latest(s.model)+1),by:device});
- const persist=s=>{try{localStorage.setItem('flowline.cloud.cache.'+s.id,JSON.stringify({model:s.model,visible:s.visible,pending:[...s.pending]}))}catch{status('本机同步缓存空间不足，请导出备份')}};
+ const persist=s=>{try{const cache={model:s.model,visible:s.visible,pending:[...s.pending]},signature=JSON.stringify(cache);if(signature===s.lastPersisted)return;localStorage.setItem('flowline.cloud.cache.'+s.id,encodeCache(cache));s.lastPersisted=signature}catch{status('本机同步缓存空间不足，请导出备份')}};
  const isCurrent=s=>session===s&&!s.closed&&!disposed;
  function capture(s){if(!isCurrent(s))return;const next=workspaceForSync(api.read()),change=reconcile(s.model,s.visible,next,stamp(s));s.visible=copy(next);if(change.changed.length){s.model=change.model;for(const id of change.changed)s.pending.add(id);s.revision++;persist(s);schedule(s)}else persist(s)}
  function paint(s){if(!isCurrent(s)||api.busy())return;const next=materialize(s.model);restoreWorkspace(next);if(canonical(next)!==canonical(workspaceForSync(api.read()))){api.apply(restoreWorkspace(next));s.visible=copy(workspaceForSync(api.read()));persist(s)}}
@@ -27,7 +28,7 @@ export function createSyncClient(api){
  function stop(){generation++;clearTimeout(retryTimer);if(session){session.closed=true;clearTimeout(session.timer);session.unsubscribe?.()}session=null}
  async function connect(raw,{remember=true}={}){const code=cleanCode(raw);if(code.length<12)throw Error('同步码至少需要12位字母或数字');stop();const token=generation;lastSyncedAt=0;status('正在连接');if(remember)localStorage.setItem(CODE_KEY,code);
   try{const id=await documentId(code),key=await encryptionKey(code);if(token!==generation||disposed)return;lastSyncedAt=Number(localStorage.getItem('flowline.cloud.lastConfirmed.'+id))||0;status('正在连接');const name='flowline-cloud-sync',app=getApps().some(a=>a.name===name)?getApp(name):initializeApp(config,name);const auth=getAuth(app);if(!auth.currentUser)await signInAnonymously(auth);if(token!==generation||disposed)return;
-   if(token!==generation)return;const db=getFirestore(app),document=doc(db,'syncSpaces',id);let cached;try{cached=JSON.parse(localStorage.getItem('flowline.cloud.cache.'+id))}catch{}
+   if(token!==generation)return;const db=getFirestore(app),document=doc(db,'syncSpaces',id);let cached;try{cached=decodeCache(localStorage.getItem('flowline.cloud.cache.'+id))}catch{}
    const visible=workspaceForSync(api.read());const s={code,id,key,db,document,model:emptyModel(),visible:copy(visible),pending:new Set(),revision:0,ready:false,closed:false,retry:2500};session=s;
    if(cached?.model){s.model=normalizeModel(cached.model);s.pending=new Set((cached.pending||[]).filter(id=>s.model.fields[id]));const change=reconcile(s.model,cached.visible||materialize(s.model),visible,stamp(s));s.model=change.model;change.changed.forEach(id=>s.pending.add(id))}
    else{s.seed=copy(visible)}

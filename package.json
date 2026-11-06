@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build:sync": "node scripts/build-sync.mjs",
-    "test": "node tests/workspace.cjs && node --test tests/cloud-model.test.mjs tests/cloud-client.test.mjs"
+    "test": "node tests/workspace.cjs && node --test tests/cloud-model.test.mjs tests/cloud-client.test.mjs tests/cloud-cache.test.mjs"
   },
   "dependencies": {
     "firebase": "11.10.0"
