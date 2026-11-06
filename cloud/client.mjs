@@ -9,9 +9,9 @@ const CODE_KEY='flowline.cloud.code.v1',DEVICE_KEY='flowline.cloud.device.v1';
 const copy=value=>JSON.parse(JSON.stringify(value));
 const sameRecord=(a,b)=>canonical(a?.value)===canonical(b?.value)&&!!a?.deleted===!!b?.deleted;
 export function createSyncClient(api){
- let session=null,generation=0,display='尚未连接',retryTimer,disposed=false;
+ let session=null,generation=0,display='尚未连接',retryTimer,disposed=false,lastSyncedAt=0;
  let device=localStorage.getItem(DEVICE_KEY)||crypto.randomUUID();localStorage.setItem(DEVICE_KEY,device);
- const status=message=>{display=message;api.status(message)};
+ const status=message=>{if(message==='已同步'&&!navigator.onLine)message='离线 · 已保存在本机';if(message==='已同步'){lastSyncedAt=Date.now();if(session)try{localStorage.setItem('flowline.cloud.lastConfirmed.'+session.id,String(lastSyncedAt))}catch{}}display=message;api.status(message,{lastSyncedAt})};
  const stamp=s=>({at:Math.max(Date.now(),latest(s.model)+1),by:device});
  const persist=s=>{try{localStorage.setItem('flowline.cloud.cache.'+s.id,JSON.stringify({model:s.model,visible:s.visible,pending:[...s.pending]}))}catch{status('本机同步缓存空间不足，请导出备份')}};
  const isCurrent=s=>session===s&&!s.closed&&!disposed;
@@ -25,9 +25,9 @@ export function createSyncClient(api){
   if(!isCurrent(s))return;const localBefore=s.model;for(const id of pendingPaths)if(sameRecord(localBefore.fields[id],pendingModel.fields[id]))s.pending.delete(id);let next=merge(localBefore,committed);const remainingStamp={at:Math.max(Date.now(),latest(next)+1),by:device};for(const id of s.pending)if(localBefore.fields[id])next.fields[id]={...localBefore.fields[id],...remainingStamp};s.model=next;s.retry=2500;persist(s);paint(s);status(s.pending.size?'有修改待同步':'已同步');
  }catch(error){if(isCurrent(s)){status(error.message?.includes('容量')?error.message:navigator.onLine?'同步未成功 · 本机已保存，稍后重试':'离线 · 已保存在本机');retry(s)}}finally{s.uploading=false;if(isCurrent(s)&&(s.pending.size||s.again)&&!s.timer)schedule(s,s.retry)}}
  function stop(){generation++;clearTimeout(retryTimer);if(session){session.closed=true;clearTimeout(session.timer);session.unsubscribe?.()}session=null}
- async function connect(raw,{remember=true}={}){const code=cleanCode(raw);if(code.length<12)throw Error('同步码至少需要12位字母或数字');stop();const token=generation;status('正在连接');if(remember)localStorage.setItem(CODE_KEY,code);
-  try{const name='flowline-cloud-sync',app=getApps().some(a=>a.name===name)?getApp(name):initializeApp(config,name);const auth=getAuth(app);if(!auth.currentUser)await signInAnonymously(auth);if(token!==generation||disposed)return;
-   const id=await documentId(code),key=await encryptionKey(code);if(token!==generation)return;const db=getFirestore(app),document=doc(db,'syncSpaces',id);let cached;try{cached=JSON.parse(localStorage.getItem('flowline.cloud.cache.'+id))}catch{}
+ async function connect(raw,{remember=true}={}){const code=cleanCode(raw);if(code.length<12)throw Error('同步码至少需要12位字母或数字');stop();const token=generation;lastSyncedAt=0;status('正在连接');if(remember)localStorage.setItem(CODE_KEY,code);
+  try{const id=await documentId(code),key=await encryptionKey(code);if(token!==generation||disposed)return;lastSyncedAt=Number(localStorage.getItem('flowline.cloud.lastConfirmed.'+id))||0;status('正在连接');const name='flowline-cloud-sync',app=getApps().some(a=>a.name===name)?getApp(name):initializeApp(config,name);const auth=getAuth(app);if(!auth.currentUser)await signInAnonymously(auth);if(token!==generation||disposed)return;
+   if(token!==generation)return;const db=getFirestore(app),document=doc(db,'syncSpaces',id);let cached;try{cached=JSON.parse(localStorage.getItem('flowline.cloud.cache.'+id))}catch{}
    const visible=workspaceForSync(api.read());const s={code,id,key,db,document,model:emptyModel(),visible:copy(visible),pending:new Set(),revision:0,ready:false,closed:false,retry:2500};session=s;
    if(cached?.model){s.model=normalizeModel(cached.model);s.pending=new Set((cached.pending||[]).filter(id=>s.model.fields[id]));const change=reconcile(s.model,cached.visible||materialize(s.model),visible,stamp(s));s.model=change.model;change.changed.forEach(id=>s.pending.add(id))}
    else{s.seed=copy(visible)}
@@ -39,7 +39,7 @@ export function createSyncClient(api){
   }catch(error){if(token!==generation)return;status(error.message?.includes('格式')||error.message?.includes('同步码')?error.message:navigator.onLine?'连接未成功 · 本机已保存，稍后重试':'离线 · 已保存在本机');retryTimer=setTimeout(()=>{if(token===generation&&!disposed)void connect(code,{remember:false})},10000)}
  }
  function changed(){if(session){capture(session)}}
- function disconnect(){stop();localStorage.removeItem(CODE_KEY);status('已断开 · 数据保留在本机')}
+ function disconnect(){stop();lastSyncedAt=0;localStorage.removeItem(CODE_KEY);status('已断开 · 数据保留在本机')}
  function flush(){if(session){capture(session);paint(session);if(session.pending.size)void push(session)}}
  window.addEventListener('online',()=>{const code=localStorage.getItem(CODE_KEY);if(code)void connect(code,{remember:false})});
  window.addEventListener('offline',()=>{if(session)status('离线 · 已保存在本机')});
