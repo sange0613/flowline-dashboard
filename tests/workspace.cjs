@@ -4,7 +4,7 @@ const script=html.slice(html.indexOf("document.addEventListener('DOMContentLoade
 function boot(seed,route){const nodes=new Map(),listeners={};let stored=seed?JSON.stringify(seed):null,id=0;const node=selector=>{if(!nodes.has(selector))nodes.set(selector,{value:'',dataset:{},style:{setProperty(){}},classList:{add(){},remove(){},toggle(){}},textContent:'',innerHTML:'',children:[],contentWindow:{postMessage(){}},querySelector:s=>node(selector+' '+s),querySelectorAll:()=>[],addEventListener(){},replaceChildren(){},append(){},showModal(){},close(){},focus(){}});return nodes.get(selector)};
  const document={querySelector:selector=>selector==='#detail [data-inline-editor]'&&!node('#detail').innerHTML.includes('data-inline-editor')?null:node(selector),querySelectorAll:()=>[],createElement:()=>node('created-'+ ++id),createTextNode:s=>s,addEventListener:(type,fn)=>{if(type==='DOMContentLoaded')fn()}};
  document.body=node('body');const context={document,window:{addEventListener:(type,fn)=>{(listeners[type]??=[]).push(fn)}},localStorage:{getItem:k=>k==='flowline.workspace.v1'?stored:null,setItem:(k,v)=>{if(k==='flowline.workspace.v1')stored=v}},crypto:{randomUUID:()=>`test-${++id}`},setTimeout:()=>1,clearTimeout(){},console,Date,URL,Blob,FormData:class{constructor(form){return form}}};context.globalThis=context;if(route){context.location={hash:route,pathname:'/',search:''};context.history={replaceState(){context.location.hash=''}};context.URLSearchParams=URLSearchParams;}
- vm.createContext(context);const exposed=script.replace(/\}\);\s*$/,`globalThis.app={enterProject,dueTargets,offerPromotion,createFlow,linkedTemplate,publishCard,restoreCard,stageForm,itemForm,stampActual,applyRoute,useCurrentTemplate,applyCloudWorkspace,projectComplete,searchRecords,navigateTo,templateShape,templateDiff,recordTemplateUpdates,projectTemplateNotices,cloudStatus,syncStatusText,get state(){return state},set state(v){state=v},project,stage,save,render,draw,detail,syncTemplateLinks,normalizeProject,previewImport,validateDrawingBackup,drawingBackupProject,clearTemplateProgress,progressInfo,liveStages,projectPreview,removeFlow,undoChange,get history(){return undoHistory},get selected(){return selected},set selected(v){selected=v},get unfinished(){return onlyUnfinished}};});`);vm.runInContext(exposed,context);return {app:context.app,node,listeners,stored:()=>JSON.parse(stored)};}
+ vm.createContext(context);const exposed=script.replace(/\}\);\s*$/,`globalThis.app={projectForm,enterProject,dueTargets,offerPromotion,createFlow,linkedTemplate,publishCard,restoreCard,stageForm,itemForm,stampActual,applyRoute,useCurrentTemplate,applyCloudWorkspace,projectComplete,searchRecords,navigateTo,templateShape,templateDiff,recordTemplateUpdates,projectTemplateNotices,cloudStatus,syncStatusText,get state(){return state},set state(v){state=v},project,stage,save,render,draw,detail,syncTemplateLinks,normalizeProject,previewImport,validateDrawingBackup,drawingBackupProject,clearTemplateProgress,progressInfo,liveStages,projectPreview,removeFlow,undoChange,get history(){return undoHistory},get selected(){return selected},set selected(v){selected=v},get unfinished(){return onlyUnfinished}};});`);vm.runInContext(exposed,context);return {app:context.app,node,listeners,stored:()=>JSON.parse(stored)};}
 const task=(id,text,done=false,details='')=>({id,text,done,details});
 const stage=(id,title,tasks=[],extra={})=>({id,title,tasks,status:'pending',notes:[],remark:'',...extra});
 const template={id:'t',name:'模板',isTemplate:true,viewMode:'cards',stages:[stage('s1','第一阶段',[task('a','事项一'),task('b','事项二')]),stage('s2','第二阶段')]};
@@ -99,4 +99,16 @@ console.log('PASS: drawing mode uses the same add scopes and restores archived c
  node('#confirmAction').onclick();
  assert(app.state.projects[0].stages[1].tasks.some(t=>t.text==='项目临时检查'&&!t.done&&!t.dueDate));
  assert.equal(app.stage().tasks[0].dueDate,'2020-01-01');
+}
+
+{
+ const design={...template,name:'01设计项目流程'};
+ const {app,node}=boot({projects:[design,project],current:'p'});
+ app.projectForm();
+ const values={name:'排期示例',projectStart:'2026-11-10',projectEnd:'2026-11-09'};
+ const submit=()=>node('#modalBody').onsubmit({preventDefault(){},target:{get:k=>values[k],getAll:()=>[design.id]}});
+ submit();assert.equal(app.state.projects.length,2);
+ values.projectEnd='2026-12-20';submit();
+ const created=app.project();assert.equal(created.projectEnd,values.projectEnd);assert(created.flows[0].isDesign);
+ const imported=app.normalizeProject(created);assert.equal(imported.projectStart,values.projectStart);assert(imported.flows[0].isDesign);
 }
