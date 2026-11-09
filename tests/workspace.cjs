@@ -4,7 +4,7 @@ const script=html.slice(html.indexOf("document.addEventListener('DOMContentLoade
 function boot(seed,route){const nodes=new Map(),listeners={};let stored=seed?JSON.stringify(seed):null,id=0;const node=selector=>{if(!nodes.has(selector))nodes.set(selector,{value:'',dataset:{},style:{setProperty(){}},classList:{add(){},remove(){},toggle(){}},textContent:'',innerHTML:'',children:[],contentWindow:{postMessage(){}},querySelector:s=>node(selector+' '+s),querySelectorAll:()=>[],addEventListener(){},replaceChildren(){},append(){},showModal(){},close(){},focus(){}});return nodes.get(selector)};
  const document={querySelector:selector=>selector==='#detail [data-inline-editor]'&&!node('#detail').innerHTML.includes('data-inline-editor')?null:node(selector),querySelectorAll:()=>[],createElement:()=>node('created-'+ ++id),createTextNode:s=>s,addEventListener:(type,fn)=>{if(type==='DOMContentLoaded')fn()}};
  document.body=node('body');const context={document,window:{addEventListener:(type,fn)=>{(listeners[type]??=[]).push(fn)}},localStorage:{getItem:k=>k==='flowline.workspace.v1'?stored:null,setItem:(k,v)=>{if(k==='flowline.workspace.v1')stored=v}},crypto:{randomUUID:()=>`test-${++id}`},setTimeout:()=>1,clearTimeout(){},console,Date,URL,Blob,FormData:class{constructor(form){return form}}};context.globalThis=context;if(route){context.location={hash:route,pathname:'/',search:''};context.history={replaceState(){context.location.hash=''}};context.URLSearchParams=URLSearchParams;}
- vm.createContext(context);const exposed=script.replace(/\}\);\s*$/,`globalThis.app={createFlow,linkedTemplate,publishCard,restoreCard,stageForm,itemForm,stampActual,applyRoute,useCurrentTemplate,applyCloudWorkspace,projectComplete,searchRecords,navigateTo,templateShape,templateDiff,recordTemplateUpdates,projectTemplateNotices,cloudStatus,syncStatusText,get state(){return state},set state(v){state=v},project,stage,save,render,draw,detail,syncTemplateLinks,normalizeProject,previewImport,validateDrawingBackup,drawingBackupProject,clearTemplateProgress,progressInfo,liveStages,projectPreview,removeFlow,undoChange,get history(){return undoHistory},get selected(){return selected},set selected(v){selected=v},get unfinished(){return onlyUnfinished}};});`);vm.runInContext(exposed,context);return {app:context.app,node,listeners,stored:()=>JSON.parse(stored)};}
+ vm.createContext(context);const exposed=script.replace(/\}\);\s*$/,`globalThis.app={enterProject,dueTargets,offerPromotion,createFlow,linkedTemplate,publishCard,restoreCard,stageForm,itemForm,stampActual,applyRoute,useCurrentTemplate,applyCloudWorkspace,projectComplete,searchRecords,navigateTo,templateShape,templateDiff,recordTemplateUpdates,projectTemplateNotices,cloudStatus,syncStatusText,get state(){return state},set state(v){state=v},project,stage,save,render,draw,detail,syncTemplateLinks,normalizeProject,previewImport,validateDrawingBackup,drawingBackupProject,clearTemplateProgress,progressInfo,liveStages,projectPreview,removeFlow,undoChange,get history(){return undoHistory},get selected(){return selected},set selected(v){selected=v},get unfinished(){return onlyUnfinished}};});`);vm.runInContext(exposed,context);return {app:context.app,node,listeners,stored:()=>JSON.parse(stored)};}
 const task=(id,text,done=false,details='')=>({id,text,done,details});
 const stage=(id,title,tasks=[],extra={})=>({id,title,tasks,status:'pending',notes:[],remark:'',...extra});
 const template={id:'t',name:'模板',isTemplate:true,viewMode:'cards',stages:[stage('s1','第一阶段',[task('a','事项一'),task('b','事项二')]),stage('s2','第二阶段')]};
@@ -84,4 +84,19 @@ console.log('PASS: drawing mode uses the same add scopes and restores archived c
 
 {
  const {app}=boot();const t=JSON.parse(JSON.stringify(template));t.stages[0].localOnly=true;t.stages[0].tasks[0].localOnly=true;const f=app.createFlow(t);assert(!f.stages[0].localOnly);assert(!f.stages[0].tasks[0].localOnly);assert.equal(f.stages[0].sourceId,t.stages[0].id);app.clearTemplateProgress(t);assert(!t.stages[0].localOnly);assert(!t.stages[0].tasks[0].localOnly);
+}
+
+{
+ const {app,node}=boot({projects:[template,project],current:'p'});
+ const p=app.project(),first=p.stages[0];first.status='done';
+ const current=p.stages[1];current.status='active';
+ current.tasks.push({...task('extra','项目临时检查'),localOnly:true,dueDate:'2020-01-01'});
+ app.enterProject(p);
+ assert.equal(app.selected,current.id);
+ assert.equal(app.dueTargets(p)[0].taskId,'extra');
+ app.offerPromotion(current,current.tasks[0]);
+ assert(node('#modalBody').innerHTML.includes('1 个关联项目'));
+ node('#confirmAction').onclick();
+ assert(app.state.projects[0].stages[1].tasks.some(t=>t.text==='项目临时检查'&&!t.done&&!t.dueDate));
+ assert.equal(app.stage().tasks[0].dueDate,'2020-01-01');
 }
