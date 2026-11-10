@@ -112,3 +112,14 @@ console.log('PASS: drawing mode uses the same add scopes and restores archived c
  const created=app.project();assert.equal(created.projectEnd,values.projectEnd);assert(created.flows[0].isDesign);
  const imported=app.normalizeProject(created);assert.equal(imported.projectStart,values.projectStart);assert(imported.flows[0].isDesign);
 }
+
+{
+ const p={id:'m',name:'主材待定清单',stages:[stage('a','分类甲',[task('x','材料甲',true,'第一次看'),task('y','材料乙',false,'第二次看')]),stage('b','分类乙',[task('z','材料丙',false,'')])]};
+ const {node}=boot({projects:[p],current:'m'});
+ assert.match(node('#routeCanvas').innerHTML,/已定 1 · 未定 1 · 共 2 项/);
+ node('#sampleRound').onchange({target:{value:'第二次看'}});
+ assert.match(node('#detail').innerHTML,/材料乙/);assert.doesNotMatch(node('#detail').innerHTML,/材料甲/);
+ assert.match(node('#routeCanvas').innerHTML,/已定 0 · 未定 1 · 共 1 项/);assert.doesNotMatch(node('#routeCanvas').innerHTML,/分类乙/);
+ node('#sampleRound').onchange({target:{value:'未指定轮次'}});
+ assert.match(node('#detail').innerHTML,/材料丙/);
+}
