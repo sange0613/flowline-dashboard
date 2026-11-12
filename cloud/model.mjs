@@ -29,7 +29,7 @@ export function materialize(model){
 export function workspaceForSync(state){
  const notes=value=>Array.isArray(value)&&value.length?clone(value):Array.from({length:12},()=>({title:'',rows:Array.from({length:3},()=>['',''])}));
  const simplifyDrawing=d=>d?{pageNotes:notes(d.pageNotes),keysById:Object.fromEntries((d.items||[]).filter(i=>i.keys).map(i=>[i.id,i.keys]))}:undefined;
- return {projects:state.projects.filter(p=>!(p.example&&!p.stages.length&&!p.flows?.length)).map(p=>{const copy=clone(p);delete copy.activeFlow;if(copy.flows?.length){delete copy.stages;copy.flows=copy.flows.map(f=>({...f,drawingData:simplifyDrawing(f.drawingData)}))}else copy.drawingData=simplifyDrawing(copy.drawingData);return copy})};
+ return {trash:clone(state.trash||[]),projects:state.projects.filter(p=>!(p.example&&!p.stages.length&&!p.flows?.length)).map(p=>{const copy=clone(p);delete copy.activeFlow;if(copy.flows?.length){delete copy.stages;copy.flows=copy.flows.map(f=>({...f,drawingData:simplifyDrawing(f.drawingData)}))}else copy.drawingData=simplifyDrawing(copy.drawingData);return copy})};
 }
 export function restoreWorkspace(value){
  if(!value||!Array.isArray(value.projects)||value.projects.length>1000)throw Error('同步内容格式不正确');
@@ -42,7 +42,7 @@ export function restoreWorkspace(value){
   }
   if(p.flows?.length){p.activeFlow=p.flows[0].id;p.stages=p.flows[0].stages}
  }
- return {projects};
+ return {projects,trash:Array.isArray(value.trash)?clone(value.trash):[]};
 }
 export const cleanCode=value=>String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,24);
 export function generateCode(){const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';return Array.from(crypto.getRandomValues(new Uint8Array(20)),b=>alphabet[b%32]).join('')}
