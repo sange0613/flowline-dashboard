@@ -17,6 +17,6 @@ test('read-only reader decrypts live updates, excludes templates and retired ite
  let model=reconcile(emptyModel(),{projects:[]},workspaceForSync(workspace),{at:1,by:'a'}).model;
  const deliver=async()=>{const payload=await encrypt(model,key);watch({exists:()=>true,data:()=>({flowline:payload}),metadata:{fromCache:false}});for(let i=0;i<100&&!result;i++)await delay(5);await delay(20)};
  await deliver();assert.equal(result.projects.length,1);const stage=result.projects[0].flows[0].stages[0];assert.equal(stage.planStart,'2026-11-06');assert.equal(stage.planEnd,'2026-11-10');assert.equal(stage.tasks.length,1);assert.equal(stage.tasks[0].done,false);assert.equal(stage.remark,'阶段提醒');assert.equal(status,'流程进度已同步');assert.equal(cache.size,1);
- const before=workspaceForSync(workspace);workspace.projects[1].flows[0].stages[0].tasks[0].done=true;model=reconcile(model,before,workspaceForSync(workspace),{at:2,by:'a'}).model;await deliver();assert.equal(result.projects[0].flows[0].stages[0].tasks[0].done,true);
+ const before=workspaceForSync(workspace);workspace.projects[1].flows[0].stages[0].tasks[0].done=true;workspace.projects[1].archived=true;model=reconcile(model,before,workspaceForSync(workspace),{at:2,by:'a'}).model;await deliver();assert.equal(result.projects[0].flows[0].stages[0].tasks[0].done,true);assert.equal(result.projects[0].archived,true);
  dispose();assert(stopped);assert.equal(Object.keys(events).length,0);
 });
