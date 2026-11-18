@@ -185,5 +185,9 @@ console.log('PASS: drawing mode uses the same add scopes and restores archived c
  const table=node('#estimateView').innerHTML;
  assert.match(table,/<h3>水电<\/h3>[\s\S]*?value="人工"[\s\S]*?value="材料"/);
  assert.match(table,/data-estimate-total>预估合计 ¥350</);
+ assert.match(table,/data-estimate-labor>¥200</);
+ assert.match(table,/data-estimate-materials>¥150</);
+ assert.match(table,/data-estimate-category-total="水电">分类合计 ¥350</);
+ assert.match(table,/data-estimate-subtotal>小计 ¥200</);
  assert.equal(stored().projects[0].stages[1].title,'水电 · 材料');
 }

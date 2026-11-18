@@ -330,17 +330,37 @@ function estimateStageGroups(stages){
  }
  return [...groups.values()];
 }
+function estimateRowTotal(task,template){
+ if(task.inactive||(!template&&!task.done))return 0;
+ const {price,qty}={...task.estimate,...task.estimateLocal};
+ return estimateAmount(price,qty);
+}
+function estimateTotals(p){
+ const template=isTemplate(p),stages=new Map(),categories=new Map();
+ const summary={total:0,labor:0,materials:0,other:0,stages,categories};
+ for(const {parent,stages:children} of estimateStageGroups(p.stages.filter(s=>!s.inactive))){
+  let categoryTotal=0;
+  for(const {stage,label} of children){
+   const subtotal=stage.tasks.reduce((sum,task)=>sum+estimateRowTotal(task,template),0);
+   stages.set(stage.id,subtotal);
+   categoryTotal+=subtotal;
+   const bucket=label==='人工'?'labor':label==='材料'?'materials':'other';
+   summary[bucket]+=subtotal;
+  }
+  if(parent)categories.set(parent,categoryTotal);
+  summary.total+=categoryTotal;
+ }
+ return summary;
+}
 function renderEstimate(p){
  const template=isTemplate(p),view=$('#estimateView');
  const fields=estimateColumns.filter(([key])=>['unit','price','qty','note'].includes(key));
  const columns=[...(template?[]:['enabled']),'name',...fields.map(([key])=>key),...(template?[]:['subtotal']),'actions'];
- let planned=0;
+ const totals=estimateTotals(p);
  const renderStage=({stage:s,label},parent)=>{
-  let groupPlan=0;
   const rows=s.tasks.filter(t=>!t.inactive).map(t=>{
    const e={...t.estimate,...t.estimateLocal},name=template?t.text:(t.estimateLocal?.name||t.text);
-   const plan=t.done?estimateAmount(e.price,e.qty):0;
-   groupPlan+=plan;
+   const plan=estimateRowTotal(t,template);
    const rowLabel=esc(name);
    return `<tr data-estimate-task="${esc(t.id)}">
     ${template?'':`<td class="estimate-include"><input type="checkbox" data-estimate-key="enabled" aria-label="计入 ${rowLabel}" ${t.done?'checked':''}></td>`}
@@ -350,10 +370,9 @@ function renderEstimate(p){
     <td><button type="button" data-estimate-delete aria-label="删除 ${rowLabel}">×</button></td>
    </tr>`;
   }).join('');
-  planned+=groupPlan;
   return `<section class="estimate-group" data-estimate-stage="${esc(s.id)}">
     <div class="estimate-heading"><input data-estimate-title${parent?` data-estimate-parent="${esc(parent)}"`:''} aria-label="${parent?'子类名称':'分类名称'}" value="${esc(label)}">
-     ${template?'':`<span data-estimate-subtotal>${estimateMoney(groupPlan)}</span>`}
+     <span data-estimate-subtotal>小计 ${estimateMoney(totals.stages.get(s.id))}</span>
      <div class="estimate-actions"><button type="button" data-estimate-add>＋ 添加项目</button><button type="button" data-estimate-delete aria-label="删除分类 ${esc(s.title)}">删除分类</button></div>
     </div>
     <div class="estimate-table"><table data-estimate-table="${template?'template':'project'}">
@@ -365,11 +384,14 @@ function renderEstimate(p){
  };
  const groups=estimateStageGroups(p.stages.filter(s=>!s.inactive)).map(({parent,stages})=>{
   if(!parent)return renderStage(stages[0],'');
-  return `<section class="estimate-category" aria-label="${esc(parent)}"><h3>${esc(parent)}</h3>
+  return `<section class="estimate-category" aria-label="${esc(parent)}"><div class="estimate-category-heading"><h3>${esc(parent)}</h3><span data-estimate-category-total="${esc(parent)}">分类合计 ${estimateMoney(totals.categories.get(parent))}</span></div>
    <div class="estimate-subgroups" data-estimate-layout="${template?'template':'project'}">${stages.map(stage=>renderStage(stage,parent)).join('')}</div>
   </section>`;
  }).join('');
- view.innerHTML=`<div class="estimate-heading estimate-toolbar"><strong>装修预估${template?'模板':''}</strong>${template?'':`<span data-estimate-total>预估合计 ${estimateMoney(planned)}</span>`}<button type="button" data-estimate-group>＋ 添加分类</button></div>${groups}`;
+ view.innerHTML=`<div class="estimate-heading estimate-toolbar"><strong>装修预估${template?'模板':''}</strong><span class="estimate-breakdown"><strong data-estimate-total>预估合计 ${estimateMoney(totals.total)}</strong>
+ <span>人工 <b data-estimate-labor>${estimateMoney(totals.labor)}</b></span>
+ <span>材料 <b data-estimate-materials>${estimateMoney(totals.materials)}</b></span>
+ <span>其他分类 <b data-estimate-other>${estimateMoney(totals.other)}</b></span></span><button type="button" data-estimate-group>＋ 添加分类</button></div>${groups}`;
 }
 function estimateMoney(value){return '¥'+value.toLocaleString('zh-CN',{maximumFractionDigits:2})}
 function estimateContext(el){
@@ -395,21 +417,22 @@ function saveEstimateInput(e){
  if(template)syncTemplateLinks();
  rememberChange();
  try{localStorage.setItem(KEY,JSON.stringify(state))}catch{toast('保存失败，请导出备份')}
- if(template)return;
- let planned=0;
- const view=$('#estimateView');
- for(const group of view.querySelectorAll('[data-estimate-stage]')){
-  let subtotal=0;
-  for(const row of group.querySelectorAll('[data-estimate-task]')){
-   const [,item]=estimateContext(row),data={...item.estimate,...item.estimateLocal};
-   const amount=item.done?estimateAmount(data.price,data.qty):0;
-   row.querySelector('[data-estimate-plan]').textContent=estimateMoney(amount);
-   subtotal+=amount;
-  }
-  group.querySelector('[data-estimate-subtotal]').textContent=estimateMoney(subtotal);
-  planned+=subtotal;
+ const p=project(),view=$('#estimateView'),totals=estimateTotals(p);
+ view.querySelector('[data-estimate-total]').textContent='预估合计 '+estimateMoney(totals.total);
+ for(const bucket of ['labor','materials','other']){
+  view.querySelector('[data-estimate-'+bucket+']').textContent=estimateMoney(totals[bucket]);
  }
- view.querySelector('[data-estimate-total]').textContent='预估合计 '+estimateMoney(planned);
+ for(const heading of view.querySelectorAll('[data-estimate-category-total]')){
+  heading.textContent='分类合计 '+estimateMoney(totals.categories.get(heading.dataset.estimateCategoryTotal)||0);
+ }
+ for(const group of view.querySelectorAll('[data-estimate-stage]')){
+  group.querySelector('[data-estimate-subtotal]').textContent='小计 '+estimateMoney(totals.stages.get(group.dataset.estimateStage)||0);
+  if(template)continue;
+  for(const row of group.querySelectorAll('[data-estimate-task]')){
+   const [,item]=estimateContext(row);
+   row.querySelector('[data-estimate-plan]').textContent=estimateMoney(estimateRowTotal(item,false));
+  }
+ }
 }
 function estimateAction(e){
  const b=e.target.closest('button');if(!b)return;
@@ -466,7 +489,10 @@ function help(){modal(`<h3>让流程跟着项目走</h3><p>① 新建项目，�
 .estimate-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:space-between}
 .estimate-group .estimate-heading{padding:6px 8px;background:#283428}
 .estimate-heading span{color:#cde0c6;font-variant-numeric:tabular-nums}
-.estimate-toolbar [data-estimate-total]{margin-left:auto;font-weight:650}
+.estimate-breakdown{display:flex;align-items:baseline;gap:6px 14px;flex-wrap:wrap;margin-left:auto}
+.estimate-breakdown strong{font-size:15px;color:#e6f1e2}
+.estimate-category-heading{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;color:#cde0c6;font-variant-numeric:tabular-nums}
+.estimate-category-heading h3{margin-bottom:0}
 .estimate-actions{display:flex;gap:4px;margin-left:auto}
 #estimateView button{padding:4px 7px;font-size:12px;line-height:1.3;white-space:nowrap}
 #estimateView td button{padding:2px 5px;color:#acb8a9}
