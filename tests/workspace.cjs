@@ -190,4 +190,13 @@ console.log('PASS: drawing mode uses the same add scopes and restores archived c
  assert.match(table,/data-estimate-category-total="水电">分类合计 ¥350</);
  assert.match(table,/data-estimate-subtotal>小计 ¥200</);
  assert.equal(stored().projects[0].stages[1].title,'水电 · 材料');
+ const clickTotal=scope=>node('#estimateView').onclick({target:{closest:selector=>selector==='button'?{
+  dataset:{estimateDetails:scope},closest:()=>null
+ }:null}});
+ clickTotal('labor');
+ assert.match(node('#modalBody').innerHTML,/人工合计 · ¥200[\s\S]*电工/);
+ assert.doesNotMatch(node('#modalBody').innerHTML,/水管/);
+ clickTotal('materials');
+ assert.match(node('#modalBody').innerHTML,/材料合计 · ¥150[\s\S]*水管/);
+ assert.doesNotMatch(node('#modalBody').innerHTML,/电工/);
 }

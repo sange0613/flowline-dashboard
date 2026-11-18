@@ -335,6 +335,9 @@ function estimateRowTotal(task,template){
  const {price,qty}={...task.estimate,...task.estimateLocal};
  return estimateAmount(price,qty);
 }
+function estimateBucket(label){
+ return label==='人工'?'labor':label==='材料'?'materials':'other';
+}
 function estimateTotals(p){
  const template=isTemplate(p),stages=new Map(),categories=new Map();
  const summary={total:0,labor:0,materials:0,other:0,stages,categories};
@@ -344,8 +347,7 @@ function estimateTotals(p){
    const subtotal=stage.tasks.reduce((sum,task)=>sum+estimateRowTotal(task,template),0);
    stages.set(stage.id,subtotal);
    categoryTotal+=subtotal;
-   const bucket=label==='人工'?'labor':label==='材料'?'materials':'other';
-   summary[bucket]+=subtotal;
+   summary[estimateBucket(label)]+=subtotal;
   }
   if(parent)categories.set(parent,categoryTotal);
   summary.total+=categoryTotal;
@@ -372,7 +374,7 @@ function renderEstimate(p){
   }).join('');
   return `<section class="estimate-group" data-estimate-stage="${esc(s.id)}">
     <div class="estimate-heading"><input data-estimate-title${parent?` data-estimate-parent="${esc(parent)}"`:''} aria-label="${parent?'子类名称':'分类名称'}" value="${esc(label)}">
-     <span data-estimate-subtotal>小计 ${estimateMoney(totals.stages.get(s.id))}</span>
+     <button type="button" class="estimate-amount-button" data-estimate-details="stage" aria-haspopup="dialog"><span data-estimate-subtotal>小计 ${estimateMoney(totals.stages.get(s.id))}</span></button>
      <div class="estimate-actions"><button type="button" data-estimate-add>＋ 添加项目</button><button type="button" data-estimate-delete aria-label="删除分类 ${esc(s.title)}">删除分类</button></div>
     </div>
     <div class="estimate-table"><table data-estimate-table="${template?'template':'project'}">
@@ -384,14 +386,15 @@ function renderEstimate(p){
  };
  const groups=estimateStageGroups(p.stages.filter(s=>!s.inactive)).map(({parent,stages})=>{
   if(!parent)return renderStage(stages[0],'');
-  return `<section class="estimate-category" aria-label="${esc(parent)}"><div class="estimate-category-heading"><h3>${esc(parent)}</h3><span data-estimate-category-total="${esc(parent)}">分类合计 ${estimateMoney(totals.categories.get(parent))}</span></div>
+  return `<section class="estimate-category" aria-label="${esc(parent)}"><div class="estimate-category-heading"><h3>${esc(parent)}</h3><button type="button" class="estimate-amount-button" data-estimate-details="category" data-estimate-category="${esc(parent)}" aria-haspopup="dialog"><span data-estimate-category-total="${esc(parent)}">分类合计 ${estimateMoney(totals.categories.get(parent))}</span></button></div>
    <div class="estimate-subgroups" data-estimate-layout="${template?'template':'project'}">${stages.map(stage=>renderStage(stage,parent)).join('')}</div>
   </section>`;
  }).join('');
- view.innerHTML=`<div class="estimate-heading estimate-toolbar"><strong>装修预估${template?'模板':''}</strong><span class="estimate-breakdown"><strong data-estimate-total>预估合计 ${estimateMoney(totals.total)}</strong>
- <span>人工 <b data-estimate-labor>${estimateMoney(totals.labor)}</b></span>
- <span>材料 <b data-estimate-materials>${estimateMoney(totals.materials)}</b></span>
- <span>其他分类 <b data-estimate-other>${estimateMoney(totals.other)}</b></span></span><button type="button" data-estimate-group>＋ 添加分类</button></div>${groups}`;
+ view.innerHTML=`<div class="estimate-heading estimate-toolbar"><strong>装修预估${template?'模板':''}</strong><span class="estimate-breakdown">
+ <button type="button" class="estimate-amount-button" data-estimate-details="total" aria-haspopup="dialog"><strong data-estimate-total>预估合计 ${estimateMoney(totals.total)}</strong></button>
+ <button type="button" class="estimate-amount-button" data-estimate-details="labor" aria-haspopup="dialog">人工 <b data-estimate-labor>${estimateMoney(totals.labor)}</b></button>
+ <button type="button" class="estimate-amount-button" data-estimate-details="materials" aria-haspopup="dialog">材料 <b data-estimate-materials>${estimateMoney(totals.materials)}</b></button>
+ <button type="button" class="estimate-amount-button" data-estimate-details="other" aria-haspopup="dialog">其他分类 <b data-estimate-other>${estimateMoney(totals.other)}</b></button></span><button type="button" data-estimate-group>＋ 添加分类</button></div>${groups}`;
 }
 function estimateMoney(value){return '¥'+value.toLocaleString('zh-CN',{maximumFractionDigits:2})}
 function estimateContext(el){
@@ -434,9 +437,40 @@ function saveEstimateInput(e){
   }
  }
 }
+function showEstimateDetails(p,scope,category,stageId){
+ const template=isTemplate(p),totals=estimateTotals(p);
+ const groups=estimateStageGroups(p.stages.filter(s=>!s.inactive));
+ const labels={total:'预估总计',labor:'人工合计',materials:'材料合计',other:'其他分类合计'};
+ const title=scope==='category'?category:scope==='stage'?p.stages.find(s=>s.id===stageId)?.title:labels[scope];
+ const amount=scope==='category'?totals.categories.get(category):scope==='stage'?totals.stages.get(stageId):totals[scope];
+ const lists=groups.flatMap(({parent,stages})=>stages.filter(({stage,label})=>{
+  if(scope==='total')return true;
+  if(scope==='category')return parent===category;
+  if(scope==='stage')return stage.id===stageId;
+  return estimateBucket(label)===scope;
+ }).map(({stage})=>{
+  const rows=stage.tasks.flatMap(task=>{
+   const data={...task.estimate,...task.estimateLocal};
+   if(task.inactive||(template?(data.price===''||data.qty===''||data.price==null||data.qty==null):!task.done))return [];
+   const name=template?task.text:(data.name||task.text);
+   const quantity=data.qty?data.qty+(data.unit?' '+data.unit:''):'—';
+   return `<li><div><strong>${esc(name)}</strong><small>${esc(quantity)} × ${data.price?estimateMoney(Number(data.price)):'—'}</small></div><b>${estimateMoney(estimateRowTotal(task,template))}</b></li>`;
+  });
+  if(!rows.length)return '';
+  return `<section><h4><span>${esc(stage.title)}</span><span>${estimateMoney(totals.stages.get(stage.id))}</span></h4><ul>${rows.join('')}</ul></section>`;
+ }).filter(Boolean)).join('');
+ modal(`<h3>${esc(title||'费用明细')} · ${estimateMoney(amount||0)}</h3>
+  <p>${template?'按模板填写的单价和数量预览。':'仅列出已勾选计入的条目。'}</p>
+  <div class="estimate-details-list">${lists||'<p>暂无计入的条目。</p>'}</div>
+  <div class="modal-actions"><button type="button" data-close>关闭</button></div>`);
+}
 function estimateAction(e){
  const b=e.target.closest('button');if(!b)return;
  const p=project(),[s,t]=estimateContext(b);
+ if(b.dataset.estimateDetails){
+  showEstimateDetails(p,b.dataset.estimateDetails,b.dataset.estimateCategory,s?.id);
+  return;
+ }
  if(b.hasAttribute('data-estimate-group'))p.stages.push({id:uid(),title:'新分类',status:'pending',tasks:[],notes:[],localOnly:!isTemplate(p)});
  else if(b.hasAttribute('data-estimate-add')&&s)s.tasks.push({id:uid(),text:'新项目',done:false,estimate:{},localOnly:!isTemplate(p)});
  else if(b.hasAttribute('data-estimate-delete')&&s){
@@ -491,6 +525,16 @@ function help(){modal(`<h3>让流程跟着项目走</h3><p>① 新建项目，�
 .estimate-heading span{color:#cde0c6;font-variant-numeric:tabular-nums}
 .estimate-breakdown{display:flex;align-items:baseline;gap:6px 14px;flex-wrap:wrap;margin-left:auto}
 .estimate-breakdown strong{font-size:15px;color:#e6f1e2}
+#estimateView .estimate-amount-button{color:#cde0c6;border:1px solid #4a5c49;border-radius:5px;background:#263226;font-variant-numeric:tabular-nums}
+#estimateView .estimate-amount-button:hover,#estimateView .estimate-amount-button:focus-visible{background:#354636;border-color:#a1b598}
+.estimate-details-list{max-height:48vh;overflow:auto;overscroll-behavior:contain}
+.estimate-details-list h4,.estimate-details-list li{display:flex;gap:12px;justify-content:space-between}
+.estimate-details-list h4{margin:10px 0 0;padding:8px;background:#2b372b;border-radius:5px;color:#d4e1cf}
+.estimate-details-list ul{list-style:none;margin:0;padding:0 8px}
+.estimate-details-list li{padding:7px 0;border-bottom:1px solid #3b483a;align-items:center}
+.estimate-details-list li strong{overflow-wrap:anywhere}
+.estimate-details-list li small{display:block;margin-top:2px;color:#b4c2b0}
+.estimate-details-list li b{white-space:nowrap;font-variant-numeric:tabular-nums}
 .estimate-category-heading{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;color:#cde0c6;font-variant-numeric:tabular-nums}
 .estimate-category-heading h3{margin-bottom:0}
 .estimate-actions{display:flex;gap:4px;margin-left:auto}
