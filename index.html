@@ -465,7 +465,11 @@ function help(){modal(`<h3>让流程跟着项目走</h3><p>① 新建项目，�
 #estimateView input[type=number]{text-align:right;font-variant-numeric:tabular-nums;appearance:textfield}
 #estimateView input[type=number]::-webkit-inner-spin-button,#estimateView input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 #estimateView input[data-estimate-title]{width:clamp(7em,30%,15em);font-weight:650}
-@media(max-width:800px){#estimateView{padding-right:0}.estimate-table table[data-estimate-table=project]{min-width:570px}.estimate-col-note{width:20%}}
+@media(max-width:800px){
+ #estimateView{padding-right:0}
+ .estimate-table table[data-estimate-table=project]{min-width:570px}
+ .estimate-col-enabled{width:40px}.estimate-col-unit{width:48px}.estimate-col-price{width:78px}.estimate-col-qty{width:76px}.estimate-col-subtotal{width:74px}.estimate-col-note{width:104px}
+}
 </style></head>
 <body><aside class="sidebar"><a class="brand" href="#"><span class="brandmark">⌁</span> 项目流程管理<span class="brand-en">PROJECT FLOW</span></a><div class="space-label">工作空间 <span>个人</span></div><button class="nav active" id="overview">▦ <span>项目流程</span><span id="projectCount">1</span></button><div class="section-label">我的项目 <button id="sideAdd" title="新建项目">＋</button></div><div id="projects"></div><div class="sidebar-bottom"><div class="local-dot"></div><div>数据保存在此浏览器<small>导出文件，随时备份和迁移</small></div><button id="help" title="使用说明">?</button></div></aside>
 <main><header><div class="breadcrumb">工作空间 <span>/</span> 项目流程</div><div class="header-right"><span class="saved" id="saved">● 已保存至本地</span><button class="icon-button" id="helpTop" aria-label="使用说明">?</button></div></header><section class="heading"><div><div class="eyebrow">EVERY STEP, IN SIGHT</div><h1>把每一步，连成一条线<span>。</span></h1><p>从起点到完成，让项目进度、待办事项和重要提醒一目了然。</p></div><button class="primary" id="newProject">＋ 新建项目</button></section>
