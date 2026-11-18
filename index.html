@@ -319,12 +319,23 @@ function estimateAmount(price,qty){
  const p=Number(price),q=Number(qty);
  return Number.isFinite(p*q)&&p>=0&&q>=0?Math.round(p*q*100)/100:0;
 }
+function estimateStageGroups(stages){
+ const groups=new Map();
+ for(const stage of stages){
+  const split=stage.title.match(/^(.+?)\s*·\s*(.+)$/);
+  const parent=split?.[1].trim()||'';
+  const key=parent?'category:'+parent:'stage:'+stage.id;
+  if(!groups.has(key))groups.set(key,{parent,stages:[]});
+  groups.get(key).stages.push({stage,label:parent?split[2].trim():stage.title});
+ }
+ return [...groups.values()];
+}
 function renderEstimate(p){
  const template=isTemplate(p),view=$('#estimateView');
  const fields=estimateColumns.filter(([key])=>['unit','price','qty','note'].includes(key));
  const columns=[...(template?[]:['enabled']),'name',...fields.map(([key])=>key),...(template?[]:['subtotal']),'actions'];
  let planned=0;
- const groups=p.stages.filter(s=>!s.inactive).map(s=>{
+ const renderStage=({stage:s,label},parent)=>{
   let groupPlan=0;
   const rows=s.tasks.filter(t=>!t.inactive).map(t=>{
    const e={...t.estimate,...t.estimateLocal},name=template?t.text:(t.estimateLocal?.name||t.text);
@@ -341,7 +352,7 @@ function renderEstimate(p){
   }).join('');
   planned+=groupPlan;
   return `<section class="estimate-group" data-estimate-stage="${esc(s.id)}">
-    <div class="estimate-heading"><input data-estimate-title aria-label="分类名称" value="${esc(s.title)}">
+    <div class="estimate-heading"><input data-estimate-title${parent?` data-estimate-parent="${esc(parent)}"`:''} aria-label="${parent?'子类名称':'分类名称'}" value="${esc(label)}">
      ${template?'':`<span data-estimate-subtotal>${estimateMoney(groupPlan)}</span>`}
      <div class="estimate-actions"><button type="button" data-estimate-add>＋ 添加项目</button><button type="button" data-estimate-delete aria-label="删除分类 ${esc(s.title)}">删除分类</button></div>
     </div>
@@ -351,6 +362,12 @@ function renderEstimate(p){
      <tbody>${rows}</tbody>
     </table></div>
    </section>`;
+ };
+ const groups=estimateStageGroups(p.stages.filter(s=>!s.inactive)).map(({parent,stages})=>{
+  if(!parent)return renderStage(stages[0],'');
+  return `<section class="estimate-category" aria-label="${esc(parent)}"><h3>${esc(parent)}</h3>
+   <div class="estimate-subgroups" data-estimate-layout="${template?'template':'project'}">${stages.map(stage=>renderStage(stage,parent)).join('')}</div>
+  </section>`;
  }).join('');
  view.innerHTML=`<div class="estimate-heading estimate-toolbar"><strong>装修预估${template?'模板':''}</strong>${template?'':`<span data-estimate-total>预估合计 ${estimateMoney(planned)}</span>`}<button type="button" data-estimate-group>＋ 添加分类</button></div>${groups}`;
 }
@@ -361,7 +378,11 @@ function estimateContext(el){
 }
 function saveEstimateInput(e){
  const el=e.target,[s,t]=estimateContext(el),key=el.dataset.estimateKey,template=isTemplate(project());
- if(el.hasAttribute('data-estimate-title')&&s){s.title=el.value.trim()||s.title;if(!template)s.estimateTitle=s.title}
+ if(el.hasAttribute('data-estimate-title')&&s){
+  const label=el.value.trim(),parent=el.dataset.estimateParent;
+  if(label)s.title=parent?parent+' · '+label:label;
+  if(!template)s.estimateTitle=s.title;
+ }
  else if(t&&key==='enabled')t.done=el.checked;
  else if(t&&key){
   const value=el.value.trim();
@@ -471,6 +492,22 @@ function help(){modal(`<h3>让流程跟着项目走</h3><p>① 新建项目，�
  .estimate-table table[data-estimate-table=project]{min-width:570px}
  .estimate-col-enabled{width:40px}.estimate-col-unit{width:48px}.estimate-col-price{width:78px}.estimate-col-qty{width:76px}.estimate-col-subtotal{width:74px}.estimate-col-name{width:140px}
 }
+.estimate-category{margin-top:14px}
+.estimate-category h3{font-size:15px;margin:0 0 6px;padding-left:2px}
+.estimate-subgroups{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:8px;align-items:start}
+.estimate-subgroups[data-estimate-layout=template]{grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))}
+.estimate-subgroups .estimate-group{min-width:0;margin-top:0}
+.estimate-subgroups .estimate-table table{min-width:380px}
+.estimate-subgroups .estimate-table table[data-estimate-table=project]{min-width:480px}
+.estimate-subgroups .estimate-col-name{width:28%}
+.estimate-subgroups .estimate-col-enabled{width:36px}
+.estimate-subgroups .estimate-col-unit{width:42px}
+.estimate-subgroups .estimate-col-price{width:68px}
+.estimate-subgroups .estimate-col-qty{width:64px}
+.estimate-subgroups .estimate-col-subtotal{width:72px}
+.estimate-subgroups .estimate-col-actions{width:29px}
+.estimate-subgroups .estimate-table th{padding-inline:5px;white-space:nowrap}
+
 </style></head>
 <body><aside class="sidebar"><a class="brand" href="#"><span class="brandmark">⌁</span> 项目流程管理<span class="brand-en">PROJECT FLOW</span></a><div class="space-label">工作空间 <span>个人</span></div><button class="nav active" id="overview">▦ <span>项目流程</span><span id="projectCount">1</span></button><div class="section-label">我的项目 <button id="sideAdd" title="新建项目">＋</button></div><div id="projects"></div><div class="sidebar-bottom"><div class="local-dot"></div><div>数据保存在此浏览器<small>导出文件，随时备份和迁移</small></div><button id="help" title="使用说明">?</button></div></aside>
 <main><header><div class="breadcrumb">工作空间 <span>/</span> 项目流程</div><div class="header-right"><span class="saved" id="saved">● 已保存至本地</span><button class="icon-button" id="helpTop" aria-label="使用说明">?</button></div></header><section class="heading"><div><div class="eyebrow">EVERY STEP, IN SIGHT</div><h1>把每一步，连成一条线<span>。</span></h1><p>从起点到完成，让项目进度、待办事项和重要提醒一目了然。</p></div><button class="primary" id="newProject">＋ 新建项目</button></section>

@@ -175,3 +175,15 @@ console.log('PASS: drawing mode uses the same add scopes and restores archived c
  assert.doesNotMatch(templateView.node('#estimateView').innerHTML,/data-estimate-key="actual/);
  assert.equal(templateView.app.createFlow(templateView.app.project()).stages[0].tasks[0].estimate.qty,'4');
 }
+{
+ const estimate={id:'estimate-grouped',name:'装修预估',viewMode:'estimate',stages:[
+  stage('labor','水电 · 人工',[{...task('labor-item','电工',true),estimate:{price:'100',qty:'2'}}]),
+  stage('materials','水电 · 材料',[{...task('material-item','水管',true),estimate:{price:'50',qty:'3'}}]),
+  stage('paint','油漆')
+ ]};
+ const {node,stored}=boot({projects:[estimate],current:estimate.id});
+ const table=node('#estimateView').innerHTML;
+ assert.match(table,/<h3>水电<\/h3>[\s\S]*?value="人工"[\s\S]*?value="材料"/);
+ assert.match(table,/data-estimate-total>预估合计 ¥350</);
+ assert.equal(stored().projects[0].stages[1].title,'水电 · 材料');
+}
