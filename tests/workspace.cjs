@@ -156,3 +156,17 @@ console.log('PASS: drawing mode uses the same add scopes and restores archived c
  const raw={workspaceBackup:2,projects:[source,app.project()],trash:[]},prepared=app.prepareWorkspaceBackup(raw),restored=prepared.projects.find(q=>q.name==='项目');assert.equal(restored.flows[0].stages[0].materialLinks[0].flowId,restored.flows[1].id);assert.equal(restored.flows[1].stages[0].tasks[0].purchase.brand,'品牌甲');
  node('#moreBtn').onclick();node('#archiveProject').onclick();assert.equal(app.project().archived,true);assert.match(node('#projects').innerHTML,/已归档/);assert.equal(app.normalizeProject(app.project()).archived,true);node('#moreBtn').onclick();node('#archiveProject').onclick();assert.equal(app.project().archived,false);
 }
+{
+ const estimate={id:'estimate-project',name:'装修项目',viewMode:'estimate',stages:[
+  stage('costs','基础施工',[
+   {...task('included','墙面',true),estimate:{unit:'㎡',price:'25',qty:'4',actualPrice:'80',actualQty:'2'}},
+   {...task('excluded','地面'),estimate:{unit:'㎡',price:'900',qty:'1'}}
+  ])
+ ]};
+ const {node,stored}=boot({projects:[estimate],current:estimate.id});
+ const table=node('#estimateView').innerHTML;
+ assert.match(table,/data-estimate-total>预估合计 ¥100</);
+ assert.match(table,/data-estimate-key="qty"/);
+ assert.doesNotMatch(table,/实际|data-estimate-key="actual/);
+ assert.equal(stored().projects[0].stages[0].tasks[0].estimate.actualPrice,'80');
+}

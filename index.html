@@ -321,27 +321,40 @@ function estimateAmount(price,qty){
 }
 function renderEstimate(p){
  const template=isTemplate(p),view=$('#estimateView');
- let planned=0,actual=0;
- const money=value=>value.toLocaleString('zh-CN',{maximumFractionDigits:2});
+ const fields=estimateColumns.filter(([key])=>['unit','price','note'].includes(key)||(!template&&key==='qty'));
+ const columns=[...(template?[]:['enabled']),'name',...fields.map(([key])=>key),...(template?[]:['subtotal']),'actions'];
+ let planned=0;
  const groups=p.stages.filter(s=>!s.inactive).map(s=>{
-  let groupPlan=0,groupActual=0;
+  let groupPlan=0;
   const rows=s.tasks.filter(t=>!t.inactive).map(t=>{
    const e={...t.estimate,...t.estimateLocal},name=template?t.text:(t.estimateLocal?.name||t.text);
-   const plan=t.done?estimateAmount(e.price,e.qty):0,spent=t.done?estimateAmount(e.actualPrice,e.actualQty):0;
-   groupPlan+=plan;groupActual+=spent;
-   const fields=estimateColumns.filter(([key])=>!template||!['qty','actualPrice','actualQty'].includes(key));
-   return `<tr data-estimate-task="${esc(t.id)}">${template?'':`<td><input type="checkbox" data-estimate-key="enabled" aria-label="计入 ${esc(name)}" ${t.done?'checked':''}></td>`}
-    <td><input class="estimate-name" data-estimate-key="name" aria-label="项目名称" value="${esc(name)}"></td>
-    ${fields.map(([key,label])=>`<td><input data-estimate-key="${key}" aria-label="${label}" ${['unit','note'].includes(key)?'':'type="number" min="0" step="any"'} value="${esc(e[key]||'')}"></td>`).join('')}
-    ${template?'':`<td data-estimate-plan>¥${money(plan)}</td><td data-estimate-spent>¥${money(spent)}</td>`}<td><button data-estimate-delete aria-label="删除 ${esc(name)}">×</button></td></tr>`;
+   const plan=t.done?estimateAmount(e.price,e.qty):0;
+   groupPlan+=plan;
+   const rowLabel=esc(name);
+   return `<tr data-estimate-task="${esc(t.id)}">
+    ${template?'':`<td class="estimate-include"><input type="checkbox" data-estimate-key="enabled" aria-label="计入 ${rowLabel}" ${t.done?'checked':''}></td>`}
+    <td><input data-estimate-key="name" aria-label="项目名称" value="${rowLabel}"></td>
+    ${fields.map(([key,label])=>`<td><input data-estimate-key="${key}" aria-label="${label} · ${rowLabel}" ${['price','qty'].includes(key)?'type="number" inputmode="decimal" min="0" step="any"':'type="text"'} value="${esc(e[key]||'')}" ${key==='note'?'placeholder="选填"':''}></td>`).join('')}
+    ${template?'':`<td class="estimate-number" data-estimate-plan>${estimateMoney(plan)}</td>`}
+    <td><button type="button" data-estimate-delete aria-label="删除 ${rowLabel}">×</button></td>
+   </tr>`;
   }).join('');
-  planned+=groupPlan;actual+=groupActual;
-  const columns=estimateColumns.filter(([key])=>!template||!['qty','actualPrice','actualQty'].includes(key));
-  return `<section class="estimate-group" data-estimate-stage="${esc(s.id)}"><div class="estimate-heading"><input data-estimate-title aria-label="分类名称" value="${esc(s.title)}">${template?'':`<span data-estimate-subtotal>预估 ¥${money(groupPlan)} · 实际 ¥${money(groupActual)}</span>`}<button data-estimate-add>＋ 添加项目</button><button data-estimate-delete aria-label="删除分类 ${esc(s.title)}">删除分类</button></div>
-  <div class="estimate-table"><table><thead><tr>${template?'':'<th>计入</th>'}<th>项目名称</th>${columns.map(([,label])=>`<th>${label}</th>`).join('')}${template?'':'<th>预估小计</th><th>实际小计</th>'}<th></th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+  planned+=groupPlan;
+  return `<section class="estimate-group" data-estimate-stage="${esc(s.id)}">
+    <div class="estimate-heading"><input data-estimate-title aria-label="分类名称" value="${esc(s.title)}">
+     ${template?'':`<span data-estimate-subtotal>${estimateMoney(groupPlan)}</span>`}
+     <div class="estimate-actions"><button type="button" data-estimate-add>＋ 添加项目</button><button type="button" data-estimate-delete aria-label="删除分类 ${esc(s.title)}">删除分类</button></div>
+    </div>
+    <div class="estimate-table"><table data-estimate-table="${template?'template':'project'}">
+     <colgroup>${columns.map(key=>`<col class="estimate-col-${key}">`).join('')}</colgroup>
+     <thead><tr>${template?'':'<th scope="col">计入</th>'}<th scope="col">项目名称</th>${fields.map(([key,label])=>`<th scope="col" ${key==='price'||key==='qty'?'class="estimate-number"':''}>${label}</th>`).join('')}${template?'':'<th scope="col" class="estimate-number">小计</th>'}<th scope="col" aria-label="操作"></th></tr></thead>
+     <tbody>${rows}</tbody>
+    </table></div>
+   </section>`;
  }).join('');
- view.innerHTML=`<div class="estimate-heading"><strong>装修预估${template?'模板':''}</strong>${template?'':`<span data-estimate-total>预估合计 ¥${money(planned)} · 实际合计 ¥${money(actual)}</span>`}<button data-estimate-group>＋ 添加分类</button></div>${groups}`;
+ view.innerHTML=`<div class="estimate-heading estimate-toolbar"><strong>装修预估${template?'模板':''}</strong>${template?'':`<span data-estimate-total>预估合计 ${estimateMoney(planned)}</span>`}<button type="button" data-estimate-group>＋ 添加分类</button></div>${groups}`;
 }
+function estimateMoney(value){return '¥'+value.toLocaleString('zh-CN',{maximumFractionDigits:2})}
 function estimateContext(el){
  const s=project().stages.find(s=>s.id===el.closest('[data-estimate-stage]')?.dataset.estimateStage);
  return [s,s?.tasks.find(t=>t.id===el.closest('[data-estimate-task]')?.dataset.estimateTask)];
@@ -361,22 +374,20 @@ function saveEstimateInput(e){
  rememberChange();
  try{localStorage.setItem(KEY,JSON.stringify(state))}catch{toast('保存失败，请导出备份')}
  if(template)return;
- const money=value=>value.toLocaleString('zh-CN',{maximumFractionDigits:2});
- let planned=0,actual=0;
+ let planned=0;
  const view=$('#estimateView');
  for(const group of view.querySelectorAll('[data-estimate-stage]')){
-  let subtotal=0,spent=0;
+  let subtotal=0;
   for(const row of group.querySelectorAll('[data-estimate-task]')){
    const [,item]=estimateContext(row),data={...item.estimate,...item.estimateLocal};
-   const a=item.done?estimateAmount(data.price,data.qty):0,b=item.done?estimateAmount(data.actualPrice,data.actualQty):0;
-   row.querySelector('[data-estimate-plan]').textContent='¥'+money(a);
-   row.querySelector('[data-estimate-spent]').textContent='¥'+money(b);
-   subtotal+=a;spent+=b;
+   const amount=item.done?estimateAmount(data.price,data.qty):0;
+   row.querySelector('[data-estimate-plan]').textContent=estimateMoney(amount);
+   subtotal+=amount;
   }
-  group.querySelector('[data-estimate-subtotal]').textContent='预估 ¥'+money(subtotal)+' · 实际 ¥'+money(spent);
-  planned+=subtotal;actual+=spent;
+  group.querySelector('[data-estimate-subtotal]').textContent=estimateMoney(subtotal);
+  planned+=subtotal;
  }
- view.querySelector('[data-estimate-total]').textContent='预估合计 ¥'+money(planned)+' · 实际合计 ¥'+money(actual);
+ view.querySelector('[data-estimate-total]').textContent='预估合计 '+estimateMoney(planned);
 }
 function estimateAction(e){
  const b=e.target.closest('button');if(!b)return;
@@ -427,15 +438,34 @@ function help(){modal(`<h3>让流程跟着项目走</h3><p>① 新建项目，�
 </script><style>.card-count.material-count{padding-right:0;white-space:normal;line-height:1.25}#roundControl{font-size:12px;color:var(--muted);white-space:nowrap}#materialStatusControl{font-size:12px;color:#a6b2a3;white-space:nowrap}#materialStatus{font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:6px;padding:3px 4px}#drawingMaterialLinks,#shiftDates{border:1px solid #526451;border-radius:6px;background:#293329;color:#dce8d7;padding:5px 10px;font-size:12px}#sampleRound{font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:6px;padding:3px 4px}.checklist-controls{flex-wrap:wrap}</style><style>.card-has-note{top:10px;right:38px;color:#d5e8bf;background:#43573c;border:1px solid #819b70;border-radius:4px;padding:2px 5px;font-size:11px;font-weight:650;pointer-events:none}.done .card-has-note{color:#203b22;background:#d9e8d0;border-color:#759173}#roundSummary{border:1px solid #526451;border-radius:6px;background:#293329;color:#dce8d7;padding:5px 10px;font-size:12px}</style><style>.summary-row{display:flex;align-items:center;gap:12px;border-bottom:1px solid #394339;padding:8px 2px}.summary-row input{width:18px;height:18px;accent-color:#a2b8a4;flex-shrink:0}.summary-row button{flex:1;text-align:left;background:none;border:0;color:inherit;padding:4px;cursor:pointer}.summary-row button strong,.summary-row button span{display:block}.summary-row button span{font-size:12px;color:#a6b2a3;margin-top:4px}</style><style>.material-links{margin-top:24px}.material-links small{color:#9aa99a}.material-link-row{display:flex;width:100%;justify-content:space-between;text-align:left;padding:8px 10px;margin-top:5px;border:1px solid #405040;border-radius:5px;background:#202820;color:#dce7db}.material-link-row span{color:#b9c9a8}.material-picker{display:grid;gap:9px;max-height:40vh;overflow:auto}.material-picker label{display:flex;gap:8px;align-items:center}</style><style>
 .estimate-mode .workbody,.estimate-mode .viewbar,.estimate-mode #totalProgress,.estimate-mode .checklist-controls{display:none}
 #estimateView[hidden]{display:none}
-#estimateView{min-height:0;overflow:auto;padding:16px 20px 24px 0;font-size:13px}
-.estimate-group{margin-top:18px;border:1px solid #405040;border-radius:8px;padding:10px}
-.estimate-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
-.estimate-heading span{margin-right:auto;color:#c4d5bf}
-.estimate-table{overflow:auto}.estimate-table table{width:100%;border-collapse:collapse;white-space:nowrap}
-.estimate-table td,.estimate-table th{text-align:left;padding:6px;border-bottom:1px solid #384438}
-#estimateView input:not([type=checkbox]){background:#1b231b;color:#e0ebdd;border:1px solid #455645;border-radius:4px;padding:6px;width:7em;font:inherit}
-#estimateView input.estimate-name,#estimateView input[data-estimate-title]{width:15em}
-#estimateView input[data-estimate-key=note]{width:12em}
+#estimateView{min-height:0;overflow:auto;padding:0 18px 20px 0;font-size:13px;color:#e4ece2}
+.estimate-toolbar{position:sticky;top:0;z-index:1;background:#181f18;padding:10px 0;border-bottom:1px solid #384438}
+.estimate-group{margin-top:12px;border:1px solid #3b493b;border-radius:7px;overflow:hidden;background:#202820}
+.estimate-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:space-between}
+.estimate-group .estimate-heading{padding:6px 8px;background:#283428}
+.estimate-heading span{color:#cde0c6;font-variant-numeric:tabular-nums}
+.estimate-toolbar [data-estimate-total]{margin-left:auto;font-weight:650}
+.estimate-actions{display:flex;gap:4px;margin-left:auto}
+#estimateView button{padding:4px 7px;font-size:12px;line-height:1.3;white-space:nowrap}
+#estimateView td button{padding:2px 5px;color:#acb8a9}
+.estimate-table{overflow:auto}
+.estimate-table table{width:100%;min-width:480px;table-layout:fixed;border-collapse:collapse}
+.estimate-table table[data-estimate-table=project]{min-width:650px}
+.estimate-col-enabled{width:46px}.estimate-col-unit{width:62px}.estimate-col-price{width:96px}.estimate-col-qty{width:88px}.estimate-col-subtotal{width:92px}.estimate-col-actions{width:34px}.estimate-col-note{width:25%}
+.estimate-table td,.estimate-table th{text-align:left;padding:3px 5px;border-bottom:1px solid #334033}
+.estimate-table th{font-weight:600;font-size:11px;color:#b7c7b3;background:#242e24;padding:6px 9px}
+.estimate-table tbody tr:last-child td{border-bottom:0}
+.estimate-table tbody tr:focus-within,.estimate-table tbody tr:hover{background:#2b382a}
+.estimate-table .estimate-number{text-align:right;font-variant-numeric:tabular-nums;padding-right:9px}
+.estimate-table .estimate-include{text-align:center}
+#estimateView input[type=checkbox]{margin:0;accent-color:#adc2a7}
+#estimateView input:not([type=checkbox]){display:block;box-sizing:border-box;min-width:0;width:100%;background:#192219;color:inherit;border:1px solid #394939;border-radius:4px;padding:3px 5px;font:inherit;line-height:1.35}
+#estimateView input:focus{outline:1px solid #b8d1b1;outline-offset:0}
+#estimateView input::placeholder{color:#91a28f}
+#estimateView input[type=number]{text-align:right;font-variant-numeric:tabular-nums;appearance:textfield}
+#estimateView input[type=number]::-webkit-inner-spin-button,#estimateView input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+#estimateView input[data-estimate-title]{width:clamp(7em,30%,15em);font-weight:650}
+@media(max-width:800px){#estimateView{padding-right:0}.estimate-table table[data-estimate-table=project]{min-width:570px}.estimate-col-note{width:20%}}
 </style></head>
 <body><aside class="sidebar"><a class="brand" href="#"><span class="brandmark">⌁</span> 项目流程管理<span class="brand-en">PROJECT FLOW</span></a><div class="space-label">工作空间 <span>个人</span></div><button class="nav active" id="overview">▦ <span>项目流程</span><span id="projectCount">1</span></button><div class="section-label">我的项目 <button id="sideAdd" title="新建项目">＋</button></div><div id="projects"></div><div class="sidebar-bottom"><div class="local-dot"></div><div>数据保存在此浏览器<small>导出文件，随时备份和迁移</small></div><button id="help" title="使用说明">?</button></div></aside>
 <main><header><div class="breadcrumb">工作空间 <span>/</span> 项目流程</div><div class="header-right"><span class="saved" id="saved">● 已保存至本地</span><button class="icon-button" id="helpTop" aria-label="使用说明">?</button></div></header><section class="heading"><div><div class="eyebrow">EVERY STEP, IN SIGHT</div><h1>把每一步，连成一条线<span>。</span></h1><p>从起点到完成，让项目进度、待办事项和重要提醒一目了然。</p></div><button class="primary" id="newProject">＋ 新建项目</button></section>
