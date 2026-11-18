@@ -169,4 +169,9 @@ console.log('PASS: drawing mode uses the same add scopes and restores archived c
  assert.match(table,/data-estimate-key="qty"/);
  assert.doesNotMatch(table,/实际|data-estimate-key="actual/);
  assert.equal(stored().projects[0].stages[0].tasks[0].estimate.actualPrice,'80');
+ const template={...estimate,id:'estimate-template',isTemplate:true};
+ const templateView=boot({projects:[template],current:template.id});
+ assert.match(templateView.node('#estimateView').innerHTML,/data-estimate-key="qty"[^>]+value="4"/);
+ assert.doesNotMatch(templateView.node('#estimateView').innerHTML,/data-estimate-key="actual/);
+ assert.equal(templateView.app.createFlow(templateView.app.project()).stages[0].tasks[0].estimate.qty,'4');
 }

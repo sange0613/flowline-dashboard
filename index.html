@@ -321,7 +321,7 @@ function estimateAmount(price,qty){
 }
 function renderEstimate(p){
  const template=isTemplate(p),view=$('#estimateView');
- const fields=estimateColumns.filter(([key])=>['unit','price','note'].includes(key)||(!template&&key==='qty'));
+ const fields=estimateColumns.filter(([key])=>['unit','price','qty','note'].includes(key));
  const columns=[...(template?[]:['enabled']),'name',...fields.map(([key])=>key),...(template?[]:['subtotal']),'actions'];
  let planned=0;
  const groups=p.stages.filter(s=>!s.inactive).map(s=>{
