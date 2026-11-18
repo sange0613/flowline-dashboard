@@ -333,7 +333,7 @@ function renderEstimate(p){
    const rowLabel=esc(name);
    return `<tr data-estimate-task="${esc(t.id)}">
     ${template?'':`<td class="estimate-include"><input type="checkbox" data-estimate-key="enabled" aria-label="计入 ${rowLabel}" ${t.done?'checked':''}></td>`}
-    <td><input data-estimate-key="name" aria-label="项目名称" value="${rowLabel}"></td>
+    <td><input data-estimate-key="name" aria-label="项目名称" title="${rowLabel}" value="${rowLabel}"></td>
     ${fields.map(([key,label])=>`<td><input data-estimate-key="${key}" aria-label="${label} · ${rowLabel}" ${['price','qty'].includes(key)?'type="number" inputmode="decimal" min="0" step="any"':'type="text"'} value="${esc(e[key]||'')}" ${key==='note'?'placeholder="选填"':''}></td>`).join('')}
     ${template?'':`<td class="estimate-number" data-estimate-plan>${estimateMoney(plan)}</td>`}
     <td><button type="button" data-estimate-delete aria-label="删除 ${rowLabel}">×</button></td>
@@ -347,7 +347,7 @@ function renderEstimate(p){
     </div>
     <div class="estimate-table"><table data-estimate-table="${template?'template':'project'}">
      <colgroup>${columns.map(key=>`<col class="estimate-col-${key}">`).join('')}</colgroup>
-     <thead><tr>${template?'':'<th scope="col">计入</th>'}<th scope="col">项目名称</th>${fields.map(([key,label])=>`<th scope="col" ${key==='price'||key==='qty'?'class="estimate-number"':''}>${label}</th>`).join('')}${template?'':'<th scope="col" class="estimate-number">小计</th>'}<th scope="col" aria-label="操作"></th></tr></thead>
+     <thead><tr>${template?'':'<th scope="col">计入</th>'}<th scope="col">名称</th>${fields.map(([key,label])=>`<th scope="col" ${key==='price'||key==='qty'?'class="estimate-number"':''}>${label}</th>`).join('')}${template?'':'<th scope="col" class="estimate-number">小计</th>'}<th scope="col" aria-label="操作"></th></tr></thead>
      <tbody>${rows}</tbody>
     </table></div>
    </section>`;
@@ -368,6 +368,7 @@ function saveEstimateInput(e){
   if(key==='name'&&template)t.text=value||t.text;
   else if(key==='name'&&!value)return;
   else {const field=template?'estimate':'estimateLocal';t[field]={...t[field],[key]:value}}
+  if(key==='name')el.title=value||t.text;
  }else return;
  // Keep the active input mounted until focus moves, so Tab and mouse clicks work.
  if(template)syncTemplateLinks();
@@ -451,7 +452,7 @@ function help(){modal(`<h3>让流程跟着项目走</h3><p>① 新建项目，�
 .estimate-table{overflow:auto}
 .estimate-table table{width:100%;min-width:480px;table-layout:fixed;border-collapse:collapse}
 .estimate-table table[data-estimate-table=project]{min-width:650px}
-.estimate-col-enabled{width:46px}.estimate-col-unit{width:62px}.estimate-col-price{width:96px}.estimate-col-qty{width:88px}.estimate-col-subtotal{width:92px}.estimate-col-actions{width:34px}.estimate-col-note{width:25%}
+.estimate-col-enabled{width:46px}.estimate-col-unit{width:62px}.estimate-col-price{width:96px}.estimate-col-qty{width:88px}.estimate-col-subtotal{width:92px}.estimate-col-actions{width:34px}.estimate-col-name{width:clamp(120px,25%,200px)}
 .estimate-table td,.estimate-table th{text-align:left;padding:3px 5px;border-bottom:1px solid #334033}
 .estimate-table th{font-weight:600;font-size:11px;color:#b7c7b3;background:#242e24;padding:6px 9px}
 .estimate-table tbody tr:last-child td{border-bottom:0}
@@ -468,7 +469,7 @@ function help(){modal(`<h3>让流程跟着项目走</h3><p>① 新建项目，�
 @media(max-width:800px){
  #estimateView{padding-right:0}
  .estimate-table table[data-estimate-table=project]{min-width:570px}
- .estimate-col-enabled{width:40px}.estimate-col-unit{width:48px}.estimate-col-price{width:78px}.estimate-col-qty{width:76px}.estimate-col-subtotal{width:74px}.estimate-col-note{width:104px}
+ .estimate-col-enabled{width:40px}.estimate-col-unit{width:48px}.estimate-col-price{width:78px}.estimate-col-qty{width:76px}.estimate-col-subtotal{width:74px}.estimate-col-name{width:140px}
 }
 </style></head>
 <body><aside class="sidebar"><a class="brand" href="#"><span class="brandmark">⌁</span> 项目流程管理<span class="brand-en">PROJECT FLOW</span></a><div class="space-label">工作空间 <span>个人</span></div><button class="nav active" id="overview">▦ <span>项目流程</span><span id="projectCount">1</span></button><div class="section-label">我的项目 <button id="sideAdd" title="新建项目">＋</button></div><div id="projects"></div><div class="sidebar-bottom"><div class="local-dot"></div><div>数据保存在此浏览器<small>导出文件，随时备份和迁移</small></div><button id="help" title="使用说明">?</button></div></aside>
