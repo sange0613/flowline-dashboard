@@ -20,3 +20,17 @@ test('empty placeholders never upload',()=>{assert.equal(workspaceForSync({proje
 test('encrypted payload round-trips and rejects another key or tampering',async()=>{const code=generateCode(),key=await encryptionKey(code),model=seed(base),encoded=await encrypt(model,key);assert(!JSON.stringify(encoded).includes('测试项目'));assert.equal(canonical(await decrypt(encoded,key)),canonical(model));await assert.rejects(decrypt(encoded,await encryptionKey(generateCode())));await assert.rejects(decrypt({...encoded,data:encoded.data.slice(0,-5)+'AAAAA'},key));assert.match(await documentId(code),/^[a-f0-9]{24}$/);assert.equal(await documentId(code),await documentId(code.toLowerCase()));});
 test('invalid cloud schema is rejected',()=>{assert.throws(()=>normalizeModel({version:8,fields:{}}));assert.throws(()=>normalizeModel({version:1,fields:{invalid:{at:1,by:'a',value:1}}}))});
 test('project-only scope and restored records survive encrypted multi-device merging',async()=>{const initial=clone(base),source=initial.projects[0].stages[0];source.sourceId='template-stage';source.tasks.forEach(t=>t.sourceId='template-'+t.id);const model=seed(workspaceForSync(initial)),a=clone(initial),b=clone(initial);a.projects[0].stages.push({...clone(stage),id:'local',title:'项目专属',sourceId:'',localOnly:true,inactive:false});a.projects[0].stages[0].tasks.push({id:'local-task',text:'专属待办',done:false,details:'',localOnly:true,sourceId:''});b.projects[0].stages[0].tasks[0].done=true;const next=merge(edit(model,workspaceForSync(initial),workspaceForSync(a),'a'),edit(model,workspaceForSync(initial),workspaceForSync(b),'b'));const key=await encryptionKey('CARDSSCOPETEST23456789');const received=restoreWorkspace(materialize(await decrypt(await encrypt(next,key),key)));assert(received.projects[0].stages.find(s=>s.id==='local').localOnly);assert(received.projects[0].stages[0].tasks.find(t=>t.id==='local-task').localOnly);assert(received.projects[0].stages[0].tasks[0].done)});
+
+test('compact encryption retains field values and deletion records beyond the legacy size limit',async()=>{
+ const model=emptyModel();
+ for(let i=0;i<28000;i++){
+  const path=JSON.stringify(['projects','$item','ab113417-1567-4f61-8bb4-f11a8e68372c','stages','$item','9b81896e-b429-40fa-b40b-f0c18aad0898','tasks','$item','c9606c3b-799b-4fca-897e-'+String(i).padStart(12,'0'),'text','$value']);
+  const stamp={at:i+1,by:'e64cf979-43d9-4800-bdb5-4938be87d35a'};
+  model.fields[path]=i%2?{...stamp,deleted:true}:{...stamp,value:'同步容量测试'};
+ }
+ assert(new TextEncoder().encode(JSON.stringify(model)).length>8_000_000);
+ const key=await encryptionKey('CAPACITYTEST23456789');
+ const packed=await encrypt(model,key);
+ assert.equal(packed.format,'flowline-aesgcm-fields-v2');
+ assert.deepEqual(await decrypt(packed,key),model);
+});

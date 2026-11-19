@@ -50,7 +50,79 @@ export async function documentId(code){const digest=await crypto.subtle.digest('
 export async function encryptionKey(code){const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('flowline-encryption-v1:'+cleanCode(code)));return crypto.subtle.importKey('raw',bytes,'AES-GCM',false,['encrypt','decrypt'])}
 const base64=bytes=>{let text='';for(let i=0;i<bytes.length;i+=8192)text+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(text)};
 const unbase64=value=>Uint8Array.from(atob(value),c=>c.charCodeAt(0));
-async function gzip(bytes){if(globalThis.fflate?.gzipSync)return globalThis.fflate.gzipSync(bytes);if(typeof CompressionStream==='function')return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());return null}
+async function gzip(bytes){if(globalThis.fflate?.gzipSync)return globalThis.fflate.gzipSync(bytes,{level:9});if(typeof CompressionStream==='function')return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());return null}
 async function gunzip(bytes){if(globalThis.fflate?.gunzipSync)return globalThis.fflate.gunzipSync(bytes);if(typeof DecompressionStream==='function')return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());throw Error('此浏览器无法读取压缩同步数据')}
-export async function encrypt(model,key){let bytes=new TextEncoder().encode(JSON.stringify(model)),compression='none';if(bytes.length>8000000)throw Error('同步空间已接近容量上限，本机数据已保留，请先导出备份');const packed=await gzip(bytes);if(packed&&packed.length<bytes.length){bytes=packed;compression='gzip'}if(bytes.length>650000)throw Error('同步空间已接近容量上限，本机数据已保留，请先导出备份');const iv=crypto.getRandomValues(new Uint8Array(12)),data=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,bytes);return {format:'flowline-aesgcm-v1',compression,iv:base64(iv),data:base64(new Uint8Array(data))}}
-export async function decrypt(value,key){if(!value)return emptyModel();if(value.format!=='flowline-aesgcm-v1'||typeof value.iv!=='string'||typeof value.data!=='string')throw Error('云端同步格式不匹配，本机数据未更改');try{let bytes=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:unbase64(value.iv)},key,unbase64(value.data)));if(value.compression==='gzip')bytes=await gunzip(bytes);if(bytes.length>8000000)throw Error('同步数据超过容量');return normalizeModel(JSON.parse(new TextDecoder().decode(bytes)))}catch{throw Error('无法读取云端内容，请检查同步码；本机数据未更改')}}
+const legacyRawLimit=8_000_000;
+const compactRawLimit=24_000_000;
+// Base64 expands the encrypted body by one third. Leave room in the Firestore document for metadata.
+const packedLimit=750_000;
+const capacityError='同步空间已接近容量上限，本机数据已保留，请先导出备份';
+const encoder=new TextEncoder();
+
+function packFields(model){
+ const strings=[],lookup=new Map();
+ function intern(value){
+  if(!lookup.has(value)){lookup.set(value,strings.length);strings.push(value)}
+  return lookup.get(value);
+ }
+ const fields=Object.entries(model.fields).map(([id,entry])=>{
+  const path=JSON.parse(id);
+  const address=key(path)===id?path.map(intern):id;
+  return entry.deleted?[address,entry.at,intern(entry.by)]:[address,entry.at,intern(entry.by),entry.value];
+ });
+ return {strings,fields};
+}
+
+function unpackFields(value){
+ if(!Array.isArray(value?.strings)||!Array.isArray(value.fields)||value.fields.length>500_000)throw Error('同步字段格式不正确');
+ function get(index){
+  const string=value.strings[index];
+  if(!Number.isSafeInteger(index)||typeof string!=='string')throw Error('同步字段格式不正确');
+  return string;
+ }
+ const fields={};
+ for(const row of value.fields){
+  if(!Array.isArray(row)||(row.length!==3&&row.length!==4))throw Error('同步字段格式不正确');
+  const [address,at,device,content]=row;
+  const path=typeof address==='string'?JSON.parse(address):address.map(get);
+  const id=typeof address==='string'?address:key(path);
+  if(!Array.isArray(path)||path.length>40||path.some(part=>typeof part!=='string'||part.length>300)||!Number.isFinite(at))throw Error('同步字段格式不正确');
+  const by=get(device);
+  fields[id]=row.length===3?{at,by,deleted:true}:{at,by,value:content};
+ }
+ return {version:1,fields};
+}
+
+async function compressIfSmaller(bytes){
+ const packed=await gzip(bytes);
+ return packed&&packed.length<bytes.length?{bytes:packed,compression:'gzip'}:{bytes,compression:'none'};
+}
+
+export async function encrypt(model,key){
+ const raw=encoder.encode(JSON.stringify(model));
+ let format='flowline-aesgcm-v1',packed=null;
+ if(raw.length<=legacyRawLimit)packed=await compressIfSmaller(raw);
+ if(!packed||packed.bytes.length>packedLimit){
+  const compact=encoder.encode(JSON.stringify(packFields(model)));
+  if(compact.length>compactRawLimit||Object.keys(model.fields).length>500_000)throw Error(capacityError);
+  packed=await compressIfSmaller(compact);
+  format='flowline-aesgcm-fields-v2';
+ }
+ if(packed.bytes.length>packedLimit)throw Error(capacityError);
+ const iv=crypto.getRandomValues(new Uint8Array(12));
+ const data=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,packed.bytes);
+ return {format,compression:packed.compression,iv:base64(iv),data:base64(new Uint8Array(data))};
+}
+
+export async function decrypt(value,key){
+ if(!value)return emptyModel();
+ const compact=value.format==='flowline-aesgcm-fields-v2';
+ if((!compact&&value.format!=='flowline-aesgcm-v1')||typeof value.iv!=='string'||typeof value.data!=='string')throw Error('云端同步格式不匹配，本机数据未更改');
+ try{
+  let bytes=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:unbase64(value.iv)},key,unbase64(value.data)));
+  if(value.compression==='gzip')bytes=await gunzip(bytes);
+  if(bytes.length>(compact?compactRawLimit:legacyRawLimit))throw Error('同步数据超过容量');
+  const payload=JSON.parse(new TextDecoder().decode(bytes));
+  return compact?unpackFields(payload):normalizeModel(payload);
+ }catch{throw Error('无法读取云端内容，请检查同步码；本机数据未更改')}
+}
