@@ -1,8 +1,9 @@
+import {prepareStorage,readStorage} from './storage.mjs';
 import {encodeCache,decodeCache} from './cache.mjs';
 import {initializeApp,getApps,getApp} from 'firebase/app';
 import {getAuth,signInAnonymously} from 'firebase/auth';
 import {getFirestore,doc,getDocFromServer,onSnapshot,runTransaction,serverTimestamp} from 'firebase/firestore';
-import {canonical,emptyModel,normalizeModel,merge,reconcile,seedMissing,rebase,materialize,latest,workspaceForSync,restoreWorkspace,cleanCode,generateCode,documentId,encryptionKey,encrypt,decrypt} from './model.mjs';
+import {canonical,emptyModel,normalizeModel,merge,reconcile,seedMissing,rebase,materialize,latest,workspaceForSync,restoreWorkspace,cleanCode,generateCode,documentId,encryptionKey} from './model.mjs';
 export {cleanCode,generateCode};
 // Public Firebase web-app configuration reused from the user's existing sync service.
 const config={apiKey:'AIzaSyDbLCcDs-Gk6ev2zSUT4cdYAgvpqUzSUEY',authDomain:'daily-calorie-tracker-3ec47.firebaseapp.com',projectId:'daily-calorie-tracker-3ec47',appId:'1:197589959166:web:711ca2487ef48c9c42c0af'};
@@ -22,7 +23,11 @@ export function createSyncClient(api){
  function schedule(s,delay=1400){if(!isCurrent(s))return;clearTimeout(s.timer);status(navigator.onLine?'有修改待同步':'离线 · 已保存在本机');s.timer=setTimeout(()=>{s.timer=null;void push(s)},delay)}
  function retry(s){if(!isCurrent(s))return;s.retry=Math.min((s.retry||2500)*2,60000);clearTimeout(s.timer);s.timer=setTimeout(()=>{s.timer=null;void push(s)},s.retry)}
  async function push(s){if(!isCurrent(s)||!s.ready)return;if(!navigator.onLine){status('离线 · 已保存在本机');return}if(s.uploading){s.again=true;return}s.uploading=true;s.again=false;const pendingModel=copy(s.model),pendingPaths=[...s.pending];status('正在同步');try{
-  const committed=await runTransaction(s.db,async transaction=>{const snapshot=await transaction.get(s.document);const remote=snapshot.exists()?await decrypt(snapshot.data().flowline,s.key):emptyModel();const changeStamp={at:Math.max(Date.now(),latest(remote)+1,latest(pendingModel)+1),by:device};const next=merge(remote,rebase(pendingModel,pendingPaths,changeStamp));restoreWorkspace(materialize(next));if(canonical(next)!==canonical(remote)){const encrypted=await encrypt(next,s.key);transaction.set(s.document,{flowline:encrypted,updatedAt:serverTimestamp()},{merge:true})}return next});
+  const committed=await runTransaction(s.db,async transaction=>{const snapshot=await transaction.get(s.document);const storage=await readStorage(s.db,snapshot,s.key,ref=>transaction.get(ref));const remote=storage.model;const changeStamp={at:Math.max(Date.now(),latest(remote)+1,latest(pendingModel)+1),by:device};const next=merge(remote,rebase(pendingModel,pendingPaths,changeStamp));restoreWorkspace(materialize(next));if(storage.legacy||canonical(next)!==canonical(remote)){
+   const prepared=await prepareStorage(s.db,s.id,s.key,next,storage);
+   for(const {ref,encrypted} of prepared.writes)transaction.set(ref,{flowline:encrypted,updatedAt:serverTimestamp()});
+   transaction.set(s.document,{flowline:prepared.manifest,updatedAt:serverTimestamp()},{merge:true});
+  }return next});
   if(!isCurrent(s))return;const localBefore=s.model;for(const id of pendingPaths)if(sameRecord(localBefore.fields[id],pendingModel.fields[id]))s.pending.delete(id);let next=merge(localBefore,committed);const remainingStamp={at:Math.max(Date.now(),latest(next)+1),by:device};for(const id of s.pending)if(localBefore.fields[id])next.fields[id]={...localBefore.fields[id],...remainingStamp};s.model=next;s.retry=2500;persist(s);paint(s);status(s.pending.size?'有修改待同步':'已同步');
  }catch(error){if(isCurrent(s)){status(error.message?.includes('容量')?error.message:navigator.onLine?'同步未成功 · 本机已保存，稍后重试':'离线 · 已保存在本机');retry(s)}}finally{s.uploading=false;if(isCurrent(s)&&(s.pending.size||s.again)&&!s.timer)schedule(s,s.retry)}}
  function stop(){generation++;clearTimeout(retryTimer);if(session){session.closed=true;clearTimeout(session.timer);session.unsubscribe?.()}session=null}
@@ -32,11 +37,11 @@ export function createSyncClient(api){
    const visible=workspaceForSync(api.read());const s={code,id,key,db,document,model:emptyModel(),visible:copy(visible),pending:new Set(),revision:0,ready:false,closed:false,retry:2500};session=s;
    if(cached?.model){s.model=normalizeModel(cached.model);s.pending=new Set((cached.pending||[]).filter(id=>s.model.fields[id]));const change=reconcile(s.model,cached.visible||materialize(s.model),visible,stamp(s));s.model=change.model;change.changed.forEach(id=>s.pending.add(id))}
    else{s.seed=copy(visible)}
-   const snapshot=await getDocFromServer(document);if(!isCurrent(s))return;const remote=snapshot.exists()?await decrypt(snapshot.data().flowline,key):emptyModel();if(s.seed){const current=workspaceForSync(api.read()),baseStamp={at:Math.max(Date.now(),latest(remote)+1),by:device};const seeded=seedMissing(remote,current,baseStamp);const early=reconcile(seeded.model,s.seed,current,{at:baseStamp.at+1,by:device});s.model=early.model;s.pending=new Set([...seeded.changed,...early.changed]);s.visible=copy(current);delete s.seed}else receive(s,remote);
+   const snapshot=await getDocFromServer(document);if(!isCurrent(s))return;const {model:remote,legacy}=await readStorage(db,snapshot,key,getDocFromServer);if(s.seed){const current=workspaceForSync(api.read()),baseStamp={at:Math.max(Date.now(),latest(remote)+1),by:device};const seeded=seedMissing(remote,current,baseStamp);const early=reconcile(seeded.model,s.seed,current,{at:baseStamp.at+1,by:device});s.model=early.model;s.pending=new Set([...seeded.changed,...early.changed]);s.visible=copy(current);delete s.seed}else receive(s,remote);
    s.ready=true;persist(s);paint(s);
    // Serialize async decryption so an older snapshot never paints after a newer one.
-   s.queue=Promise.resolve();s.unsubscribe=onSnapshot(document,{includeMetadataChanges:true},snapshot=>{if(!isCurrent(s)||snapshot.metadata.hasPendingWrites||snapshot.metadata.fromCache)return;s.queue=s.queue.then(async()=>{const remote=snapshot.exists()?await decrypt(snapshot.data().flowline,key):emptyModel();if(!isCurrent(s))return;receive(s,remote);if(s.pending.size||canonical(s.model)!==canonical(remote))schedule(s);else if(!s.uploading)status('已同步')}).catch(error=>{if(isCurrent(s))status(error.message)})},()=>{if(isCurrent(s)){status('连接中断 · 本机数据已保留');s.unsubscribe?.();retryTimer=setTimeout(()=>{if(isCurrent(s))void connect(code,{remember:false})},5000)}});
-   if(s.pending.size||canonical(s.model)!==canonical(remote))await push(s);else status('已同步');
+   s.queue=Promise.resolve();s.unsubscribe=onSnapshot(document,{includeMetadataChanges:true},snapshot=>{if(!isCurrent(s)||snapshot.metadata.hasPendingWrites||snapshot.metadata.fromCache)return;s.queue=s.queue.then(async()=>{const {model:remote}=await readStorage(db,snapshot,key,getDocFromServer);if(!isCurrent(s))return;receive(s,remote);if(s.pending.size||canonical(s.model)!==canonical(remote))schedule(s);else if(!s.uploading)status('已同步')}).catch(error=>{if(isCurrent(s))status(error.message)})},()=>{if(isCurrent(s)){status('连接中断 · 本机数据已保留');s.unsubscribe?.();retryTimer=setTimeout(()=>{if(isCurrent(s))void connect(code,{remember:false})},5000)}});
+   if(legacy||s.pending.size||canonical(s.model)!==canonical(remote))await push(s);else status('已同步');
   }catch(error){if(token!==generation)return;status(error.message?.includes('格式')||error.message?.includes('同步码')?error.message:navigator.onLine?'连接未成功 · 本机已保存，稍后重试':'离线 · 已保存在本机');retryTimer=setTimeout(()=>{if(token===generation&&!disposed)void connect(code,{remember:false})},10000)}
  }
  function changed(){if(session){capture(session)}}
