@@ -364,7 +364,7 @@ function renderEstimate(p){
    const e={...t.estimate,...t.estimateLocal},name=template?t.text:(t.estimateLocal?.name||t.text);
    const plan=estimateRowTotal(t,template);
    const rowLabel=esc(name);
-   return `<tr data-estimate-task="${esc(t.id)}">
+   return `<tr data-estimate-task="${esc(t.id)}" class="${!template&&t.done?'estimate-included':''}">
     ${template?'':`<td class="estimate-include"><input type="checkbox" data-estimate-key="enabled" aria-label="计入 ${rowLabel}" ${t.done?'checked':''}></td>`}
     <td><input data-estimate-key="name" aria-label="项目名称" title="${rowLabel}" value="${rowLabel}"></td>
     ${fields.map(([key,label])=>`<td><input data-estimate-key="${key}" aria-label="${label} · ${rowLabel}" ${['price','qty'].includes(key)?'type="number" inputmode="decimal" min="0" step="any"':'type="text"'} value="${esc(e[key]||'')}" ${key==='note'?'placeholder="选填"':''}></td>`).join('')}
@@ -408,7 +408,10 @@ function saveEstimateInput(e){
   if(label)s.title=parent?parent+' · '+label:label;
   if(!template)s.estimateTitle=s.title;
  }
- else if(t&&key==='enabled')t.done=el.checked;
+ else if(t&&key==='enabled'){
+  t.done=el.checked;
+  el.closest('[data-estimate-task]').classList.toggle('estimate-included',t.done);
+ }
  else if(t&&key){
   const value=el.value.trim();
   if(key==='name'&&template)t.text=value||t.text;
@@ -548,6 +551,11 @@ function help(){modal(`<h3>让流程跟着项目走</h3><p>① 新建项目，�
 .estimate-table th{font-weight:600;font-size:11px;color:#b7c7b3;background:#242e24;padding:6px 9px}
 .estimate-table tbody tr:last-child td{border-bottom:0}
 .estimate-table tbody tr:focus-within,.estimate-table tbody tr:hover{background:#2b382a}
+.estimate-table tbody tr.estimate-included{background:#334933}
+.estimate-table tbody tr.estimate-included:focus-within,.estimate-table tbody tr.estimate-included:hover{background:#3c553b}
+.estimate-table tr.estimate-included td:first-child{box-shadow:inset 3px 0 #a5c79b}
+.estimate-table tr.estimate-included td[data-estimate-plan]{color:#e3f0d9;font-weight:650}
+#estimateView tr.estimate-included input:not([type=checkbox]):not(:focus){background:#273b27;border-color:#536d50}
 .estimate-table .estimate-number{text-align:right;font-variant-numeric:tabular-nums;padding-right:9px}
 .estimate-table .estimate-include{text-align:center}
 #estimateView input[type=checkbox]{margin:0;accent-color:#adc2a7}
